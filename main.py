@@ -1,3 +1,5 @@
+import shutil
+
 from ultralytics import YOLO
 import json
 from pathlib import Path
@@ -28,6 +30,7 @@ def load_best(model_name, c):
         raise FileNotFoundError(f"❌ No runs found for {name_prefix}")
 
     latest_run = max(candidates, key=lambda d: d.stat().st_mtime)
+    shutil.copytree(latest_run, f"results/{name_prefix}", dirs_exist_ok=True)
     best_path = latest_run / "weights" / "best.pt"
 
     print(f"📦 Loading best model from: {best_path}")
@@ -43,7 +46,7 @@ def save_result(model):
 
     # 获取 run 名称
     run_name = model._run_dir  # 使用我们手动保存的路径名
-    result_path = Path("results") / f"{run_name}.json"
+    result_path = Path("results") / f"{run_name}/{run_name}.json"
     result_path.parent.mkdir(exist_ok=True)
 
     # 保存为 JSON

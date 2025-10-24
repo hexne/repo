@@ -2,6 +2,7 @@
 runs
 *.pt
 __pycache__
+results
 1
 2
 3
