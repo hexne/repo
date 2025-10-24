@@ -204,11 +204,19 @@ class Annotator:
         self.pil = pil or non_ascii or input_is_pil
         self.lw = line_width or max(round(sum(im.size if input_is_pil else im.shape) / 2 * 0.003), 2)
         if not input_is_pil:
-            if im.shape[2] == 1:  # handle grayscale
+            if im.ndim == 2 or im.shape[2] == 1:  # handle grayscale
                 im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
             elif im.shape[2] > 3:  # multispectral
                 im = np.ascontiguousarray(im[..., :3])
         if self.pil:  # use PIL
+
+            c = im.shape[2]
+            if c % 2 == 0:
+                im = im[:, :, c // 2 - 1]  # 偶数通道，取中间偏前一层
+            else:
+                im = im[:, :, c // 2]  # 奇数通道，取正中间那层
+            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)  # 转为3通道BGR用于可视化
+
             self.im = im if input_is_pil else Image.fromarray(im)
             if self.im.mode not in {"RGB", "RGBA"}:  # multispectral
                 self.im = self.im.convert("RGB")
@@ -760,7 +768,7 @@ def plot_images(
         images *= 255  # de-normalise (optional)
 
     # Build Image
-    mosaic = np.full((int(ns * h), int(ns * w), 3), 255, dtype=np.uint8)  # init
+    mosaic = np.full((int(ns * h), int(ns * w), images[0].shape[0]), 255, dtype=np.uint8)  # init
     for i in range(bs):
         x, y = int(w * (i // ns)), int(h * (i % ns))  # block origin
         mosaic[y : y + h, x : x + w, :] = images[i].transpose(1, 2, 0)
