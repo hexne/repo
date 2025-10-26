@@ -5,10 +5,14 @@ import json
 import gc
 import multiprocessing as mp
 import torch
+import time
 from pathlib import Path
 
+
+count = 0
 def train(model_name, c, batch, worker):
     lr = 0.01 * batch / 64
+    begin_time = time.time()
     model = YOLO(f"{model_name}.pt")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
@@ -21,6 +25,8 @@ def train(model_name, c, batch, worker):
         lr0=lr,
         patience=0
     )
+    global count
+    count= int(time.time() - begin_time)
     return load_best(model_name, c)
 
 
@@ -47,6 +53,8 @@ def save_result(model):
     # 在验证集上评估
     metrics = model.val(split='test')
     results = metrics.results_dict
+    global count
+    results['count_time_seconds'] = count
 
     # 获取 run 名称
     run_name = model._run_dir  # 使用我们手动保存的路径名
