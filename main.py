@@ -2,20 +2,24 @@ import shutil
 
 from ultralytics import YOLO
 import json
+import gc
+import multiprocessing as mp
+import torch
 from pathlib import Path
 
-def train(model_name, c, batch = 32):
+def train(model_name, c, batch, worker):
     lr = 0.01 * batch / 64
     model = YOLO(f"{model_name}.pt")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=3,
+        epochs=300,
         batch=batch,
-        workers=8,
+        workers=worker,
         device=0,
         name=f"{model_name}_{c}",
         lr0=lr,
+        patience=0
     )
     return load_best(model_name, c)
 
@@ -52,9 +56,66 @@ def save_result(model):
     with open(result_path, "w") as f:
         json.dump(results, f, indent=2)
 
+import multiprocessing as mp
+import time
+
+def train_worker(args):
+    """在工作进程中运行训练"""
+    model, epoch, batch_size, workers = args
+    try:
+        # 在新进程中重新导入
+
+        print(f"进程开始训练: {model} epoch{epoch}")
+        result = train(model, str(epoch), batch_size, workers)
+        save_result(result)
+        print(f"✓ 进程完成训练: {model} epoch{epoch}")
+        return True
+    except Exception as e:
+        print(f"✗ 进程训练失败 {model} epoch{epoch}: {e}")
+        return False
+
 if __name__ == "__main__":
     models = ['yolo11n', 'yolo12n']
+    batchs = [64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
+    workers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    
     for model in models:
-        batch = 32 if model == "yolo11n" else 16
         for i in range(1, 11):
-            save_result(train(model, str(i), batch))
+            print(f"\n{'='*60}")
+            print(f"创建新进程训练: {model} epoch{i}")
+            print(f"批次大小: {batchs[i-1]}, Workers: {workers[i-1]}")
+            print(f"{'='*60}")
+            
+            # 准备参数
+            args = (model, i, batchs[i-1], workers[i-1])
+            
+            # 创建进程
+            process = mp.Process(target=train_worker, args=(args,))
+            
+            # 记录开始时间
+            start_time = time.time()
+            
+            # 启动进程
+            process.start()
+            
+            # 等待进程完成（阻塞，不会并行）
+            process.join()
+            
+            # 计算耗时
+            elapsed_time = time.time() - start_time
+            
+            # 检查进程退出状态
+            if process.exitcode == 0:
+                print(f"✅ 进程正常退出: {model} epoch{i} (耗时: {elapsed_time:.1f}秒)")
+            else:
+                print(f"❌ 进程异常退出: {model} epoch{i} (退出码: {process.exitcode})")
+            
+            # 清理进程资源
+            process.close()
+            
+            print(f"🧹 进程资源已清理，内存完全释放")
+            
+            # 可选：短暂暂停，确保系统完全回收资源
+            time.sleep(2)
+            
+            print(f"准备下一个训练任务...\n")
