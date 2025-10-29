@@ -10,19 +10,17 @@ from pathlib import Path
 
 
 count = 0
-def train(model_name, c, batch, worker):
-    lr = 0.01 * batch / 64
+def train(model_name, c):
     begin_time = time.time()
-    model = YOLO(f"{model_name}.pt")
+    model = YOLO("yolo11n.pt")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
         epochs=300,
-        batch=batch,
-        workers=worker,
+        batch=64,
+        workers=1,
         device=0,
         name=f"{model_name}_{c}",
-        lr0=lr,
         patience=0
     )
     global count
@@ -83,47 +81,22 @@ def train_worker(args):
         return False
 
 if __name__ == "__main__":
-    models = ['yolo11n', 'yolo12n']
-    batchs = [64, 64, 64, 64, 64, 64, 64, 64, 64, 64]
-    workers = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    
-    for model in models:
-        for i in range(1, 11):
-            print(f"\n{'='*60}")
-            print(f"创建新进程训练: {model} epoch{i}")
-            print(f"批次大小: {batchs[i-1]}, Workers: {workers[i-1]}")
-            print(f"{'='*60}")
-            
-            # 准备参数
-            args = (model, i, batchs[i-1], workers[i-1])
-            
-            # 创建进程
-            process = mp.Process(target=train_worker, args=(args,))
-            
-            # 记录开始时间
-            start_time = time.time()
-            
-            # 启动进程
-            process.start()
-            
-            # 等待进程完成（阻塞，不会并行）
-            process.join()
-            
-            # 计算耗时
-            elapsed_time = time.time() - start_time
-            
-            # 检查进程退出状态
-            if process.exitcode == 0:
-                print(f"✅ 进程正常退出: {model} epoch{i} (耗时: {elapsed_time:.1f}秒)")
-            else:
-                print(f"❌ 进程异常退出: {model} epoch{i} (退出码: {process.exitcode})")
-            
-            # 清理进程资源
-            process.close()
-            
-            print(f"🧹 进程资源已清理，内存完全释放")
-            
-            # 可选：短暂暂停，确保系统完全回收资源
-            time.sleep(2)
-            
-            print(f"准备下一个训练任务...\n")
+    for i in range(1, 11):
+        print(f"\n{'='*60}")
+        args = (i)
+        process = mp.Process(target=train_worker, args=(args,))
+        start_time = time.time()
+        process.start()
+        process.join()
+        elapsed_time = time.time() - start_time
+
+        # 检查进程退出状态
+        if process.exitcode == 0:
+            print(f"✅ 进程正常退出: channel{i} (耗时: {elapsed_time:.1f}秒)")
+        else:
+            print(f"❌ 进程异常退出: channel{i} (退出码: {process.exitcode})")
+
+        process.close()
+
+        print(f"🧹 进程资源已清理，内存完全释放")
+        time.sleep(2)
