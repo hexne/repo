@@ -16,9 +16,9 @@ def train(c):
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=300,
-        batch=64,
-        workers=1,
+        epochs=10,
+        batch=16,
+        workers=8,
         device=0,
         name=f"{c}",
         patience=0
@@ -71,7 +71,7 @@ def train_worker(args):
     save_result(train(i))
 
 if __name__ == "__main__":
-    for i in range(1, 11):
+    for i in [1, 3 ,5]:
         print(f"\n{'='*60}")
         args = (i)
         process = mp.Process(target=train_worker, args=(args,))
