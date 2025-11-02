@@ -9,28 +9,50 @@ import time
 from pathlib import Path
 
 
+
+def freeze_backbone(model):
+    for name, param in model.model.named_parameters():
+        if name.startswith("model.0"):  # backbone
+            param.requires_grad = False
+
+
+def check_freeze(model):
+    frozen, trainable = [], []
+    for name, p in model.model.named_parameters():
+        if not p.requires_grad:
+            frozen.append(name)
+        else:
+            trainable.append(name)
+    print(f"Frozen layers: {len(frozen)}")
+    print(f"Trainable layers: {len(trainable)}")
+    return frozen, trainable
+
+
+
 count = 0
-def train(model_name, c):
+def train(c):
     begin_time = time.time()
-    model = YOLO("yolo11n.pt")
+    model = YOLO("cfg/dinovit.yaml")
+
     model.train(
-        data=f"dataset/{c}/dataset.yaml",
+        data=f"./dataset/{c}/dataset.yaml",
         imgsz=512,
         epochs=300,
-        batch=64,
-        workers=1,
+        batch=16,
+        workers=8,
         device=0,
-        name=f"{model_name}_{c}",
-        patience=0
+        name=f"{c}",
+        patience=0,
+        freeze=1,
     )
     global count
     count= int(time.time() - begin_time)
-    return load_best(model_name, c)
+    return load_best(c)
 
 
-def load_best(model_name, c):
+def load_best(c):
     base_dir = Path("runs/detect")
-    name_prefix = f"{model_name}_{c}"
+    name_prefix = f"{c}"
 
     # 找到所有以 name_prefix 开头的子目录
     candidates = [d for d in base_dir.glob(f"{name_prefix}*") if d.is_dir()]
@@ -81,22 +103,23 @@ def train_worker(args):
         return False
 
 if __name__ == "__main__":
-    for i in range(1, 11):
-        print(f"\n{'='*60}")
-        args = (i)
-        process = mp.Process(target=train_worker, args=(args,))
-        start_time = time.time()
-        process.start()
-        process.join()
-        elapsed_time = time.time() - start_time
-
-        # 检查进程退出状态
-        if process.exitcode == 0:
-            print(f"✅ 进程正常退出: channel{i} (耗时: {elapsed_time:.1f}秒)")
-        else:
-            print(f"❌ 进程异常退出: channel{i} (退出码: {process.exitcode})")
-
-        process.close()
-
-        print(f"🧹 进程资源已清理，内存完全释放")
-        time.sleep(2)
+    save_result(train('3p'))
+    # for i in range(1, 11):
+    #     print(f"\n{'='*60}")
+    #     args = (i)
+    #     process = mp.Process(target=train_worker, args=(args,))
+    #     start_time = time.time()
+    #     process.start()
+    #     process.join()
+    #     elapsed_time = time.time() - start_time
+    #
+    #     # 检查进程退出状态
+    #     if process.exitcode == 0:
+    #         print(f"✅ 进程正常退出: channel{i} (耗时: {elapsed_time:.1f}秒)")
+    #     else:
+    #         print(f"❌ 进程异常退出: channel{i} (退出码: {process.exitcode})")
+    #
+    #     process.close()
+    #
+    #     print(f"🧹 进程资源已清理，内存完全释放")
+    #     time.sleep(2)

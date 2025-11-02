@@ -93,6 +93,8 @@ from ultralytics.utils.torch_utils import (
     time_sync,
 )
 
+from cfg.VitBackbone import VitBackbone
+from cfg.Feature import GetFeatures
 
 class BaseModel(torch.nn.Module):
     """
@@ -1700,10 +1702,20 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f]
             args = [*args[1:]]
+        elif m is VitBackbone:
+            m_ = m(*args)
+            backbone = True
+            c2 = m_._out_channels
+            args = [*args[3:]]
+        elif m is GetFeatures:
+            m_ = m(*args)  # 实例化
+            c2 = m_.out_channels
         else:
             c2 = ch[f]
 
-        m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+        if m is not VitBackbone:
+            m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         m_.np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type
