@@ -36,7 +36,7 @@ class VitBackbone(nn.Module):
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         # n=[1,2,3] 表示取第1、2、3个Transformer block的输出
-        features_tuple = self.model.get_intermediate_layers(x, n=[2, 6, 11], reshape = True)
+        features_tuple = self.model.get_intermediate_layers(x, n=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], reshape = True)
 
         return list(features_tuple)
         return list(features_tuple)

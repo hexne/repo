@@ -94,7 +94,8 @@ from ultralytics.utils.torch_utils import (
 )
 
 from cfg.VitBackbone import VitBackbone
-from cfg.Feature import GetFeatures
+from cfg.Feature import GetFeatures, MergeFeatures
+
 
 class BaseModel(torch.nn.Module):
     """
@@ -1708,6 +1709,9 @@ def parse_model(d, ch, verbose=True):
             c2 = m_._out_channels
             args = [*args[3:]]
         elif m is GetFeatures:
+            m_ = m(*args)  # 实例化
+            c2 = m_.out_channels
+        elif m is MergeFeatures:
             m_ = m(*args)  # 实例化
             c2 = m_.out_channels
         else:
