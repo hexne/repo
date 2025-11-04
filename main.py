@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 count = 0
-def train(model_name, c):
+def train(c):
     begin_time = time.time()
     model = YOLO("./ultralytics/cfg/models/11/yolo11.yaml")
     model.train(
@@ -20,17 +20,17 @@ def train(model_name, c):
         batch=64,
         workers=1,
         device=0,
-        name=f"{model_name}_{c}",
+        name=f"{c}",
         patience=0
     )
     global count
     count= int(time.time() - begin_time)
-    return load_best(model_name, c)
+    return load_best(c)
 
 
-def load_best(model_name, c):
+def load_best(c):
     base_dir = Path("runs/detect")
-    name_prefix = f"{model_name}_{c}"
+    name_prefix = f"{c}"
 
     # 找到所有以 name_prefix 开头的子目录
     candidates = [d for d in base_dir.glob(f"{name_prefix}*") if d.is_dir()]
@@ -67,21 +67,10 @@ import time
 
 def train_worker(args):
     """在工作进程中运行训练"""
-    model, epoch, batch_size, workers = args
-    try:
-        # 在新进程中重新导入
-
-        print(f"进程开始训练: {model} epoch{epoch}")
-        result = train(model, str(epoch), batch_size, workers)
-        save_result(result)
-        print(f"✓ 进程完成训练: {model} epoch{epoch}")
-        return True
-    except Exception as e:
-        print(f"✗ 进程训练失败 {model} epoch{epoch}: {e}")
-        return False
-
+    c = args
+    save_result(train(c))
 if __name__ == "__main__":
-    for i in range(1, 11):
+    for i in range(1, 8):
         print(f"\n{'='*60}")
         args = (i)
         process = mp.Process(target=train_worker, args=(args,))
