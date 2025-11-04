@@ -12,7 +12,7 @@ from pathlib import Path
 count = 0
 def train(model_name, c):
     begin_time = time.time()
-    model = YOLO("yolo11n.pt")
+    model = YOLO("./ultralytics/cfg/models/11/yolo11.yaml")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
