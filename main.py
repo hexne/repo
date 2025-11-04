@@ -70,22 +70,23 @@ def train_worker(args):
     c = args
     save_result(train(c))
 if __name__ == "__main__":
-    for i in range(1, 8):
-        print(f"\n{'='*60}")
-        args = (i)
-        process = mp.Process(target=train_worker, args=(args,))
-        start_time = time.time()
-        process.start()
-        process.join()
-        elapsed_time = time.time() - start_time
-
-        # 检查进程退出状态
-        if process.exitcode == 0:
-            print(f"✅ 进程正常退出: channel{i} (耗时: {elapsed_time:.1f}秒)")
-        else:
-            print(f"❌ 进程异常退出: channel{i} (退出码: {process.exitcode})")
-
-        process.close()
-
-        print(f"🧹 进程资源已清理，内存完全释放")
-        time.sleep(2)
+    save_result(train(5))
+    # for i in range(1, 8):
+    #     print(f"\n{'='*60}")
+    #     args = (i)
+    #     process = mp.Process(target=train_worker, args=(args,))
+    #     start_time = time.time()
+    #     process.start()
+    #     process.join()
+    #     elapsed_time = time.time() - start_time
+    #
+    #     # 检查进程退出状态
+    #     if process.exitcode == 0:
+    #         print(f"✅ 进程正常退出: channel{i} (耗时: {elapsed_time:.1f}秒)")
+    #     else:
+    #         print(f"❌ 进程异常退出: channel{i} (退出码: {process.exitcode})")
+    #
+    #     process.close()
+    #
+    #     print(f"🧹 进程资源已清理，内存完全释放")
+    #     time.sleep(2)
