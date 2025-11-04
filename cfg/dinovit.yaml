@@ -18,13 +18,27 @@ scales: # model compound scaling constants, i.e. 'model=yolo11n.yaml' will call 
 backbone:
   - [-1, 1, VitBackbone, ['dinov3', 'cfg/pth/dinov3_vits16.pth', 's', True]] # 0
 head:
-  - [0, 1, MergeFeatures, [[0, 1, 2, 3], 1536]] # 1
+  - [0, 1, MergeFeatures, [[0, 1, 4, 8], 1536]] # 1
   - [-1, 1, Conv, [256, 1, 1]] # 2
 
-  - [0, 1, MergeFeatures, [[4, 5, 6, 7], 1536]] # 3
+  - [0, 1, MergeFeatures, [[2, 5, 6, 10], 1536]] # 3
   - [-1, 1, Conv, [512, 1, 1]] # 4
 
-  - [0, 1, MergeFeatures, [[8, 9, 10, 11], 1536]] # 5
+  - [0, 1, MergeFeatures, [[3, 8, 9, 11], 1536]] # 5
   - [-1, 1, Conv, [1024, 1, 1]] # 6
 
-  - [[2, 4, 6], 1, Detect, [nc]] # Detect(P3, P4, P5)
+
+  - [[-1, 4], 1, Concat, [1]] # cat backbone P4
+  - [-1, 2, C3k2, [512, False]] # 13
+
+  - [[-1, 2], 1, Concat, [1]] # cat backbone P3
+  - [-1, 2, C3k2, [256, False]] # 16 (P3/8-small)
+
+  - [[-1, 8], 1, Concat, [1]] # cat head P4
+  - [-1, 2, C3k2, [512, False]] # 19 (P4/16-medium)
+
+  - [[-1, 6], 1, Concat, [1]] # cat head P5
+  - [-1, 2, C3k2, [1024, True]] # 22 (P5/32-large)
+
+
+  - [[10, 12, 14], 1, Detect, [nc]] # Detect(P3, P4, P5)

@@ -27,13 +27,45 @@ def check_freeze(model):
     print(f"Trainable layers: {len(trainable)}")
     return frozen, trainable
 
+def partial_freeze_vit(model):
+    vit_backbone = model.model.model[0]  # 正确访问 VitBackbone
+    dino = vit_backbone.model            # DINOv3 模型
+
+    # 1. 冻结 patch embedding
+    if hasattr(dino, 'patch_embed'):
+        for param in dino.patch_embed.parameters():
+            param.requires_grad = False
+
+    # 2. 冻结 positional embedding
+    for attr in ['pos_embed', 'cls_token', 'storage_tokens', 'mask_token']:
+        if hasattr(dino, attr):
+            getattr(dino, attr).requires_grad = False
+
+    # 3. 部分冻结 transformer blocks
+    if hasattr(dino, 'blocks'):
+        num_blocks = len(dino.blocks)
+        unfreeze_blocks = min(4, num_blocks // 3)
+        freeze_until = max(0, num_blocks - unfreeze_blocks)
+
+        for i, block in enumerate(dino.blocks):
+            freeze = (i < freeze_until)
+            for param in block.parameters():
+                param.requires_grad = not freeze
+
+        print(f"冻结前 {freeze_until}/{num_blocks} 个 transformer block")
+
+    # 4. 解冻最后的 norm 层
+    if hasattr(dino, 'norm'):
+        for param in dino.norm.parameters():
+            param.requires_grad = True
+
 
 
 count = 0
 def train(c):
     begin_time = time.time()
     model = YOLO("cfg/dinovit.yaml")
-
+    partial_freeze_vit(model)
     model.train(
         data=f"./dataset/{c}/dataset.yaml",
         imgsz=512,
@@ -43,8 +75,9 @@ def train(c):
         device=0,
         name=f"{c}",
         patience=0,
-        freeze=1,
+        freeze=0,
     )
+    partial_freeze_vit(model)
     global count
     count= int(time.time() - begin_time)
     return load_best(c)
