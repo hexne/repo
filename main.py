@@ -18,7 +18,7 @@ def train(c):
         imgsz=512,
         epochs=300,
         batch=64,
-        workers=1,
+        workers=2,
         device=0,
         name=f"{c}",
         patience=0
@@ -70,7 +70,7 @@ def train_worker(args):
     c = args
     save_result(train(c))
 if __name__ == "__main__":
-    for i in range(1, 8):
+    for i in [1, 2, 3, 4, 5]:
         print(f"\n{'='*60}")
         args = i
         process = mp.Process(target=train_worker, args=(args,))
