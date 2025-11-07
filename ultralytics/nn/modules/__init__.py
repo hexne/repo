@@ -182,5 +182,6 @@ __all__ = (
     "Index",
     "A2C2f",
     # @TODO, 添加模块
-    "SE"
+    "SE",
+    "Conv3D"
 )

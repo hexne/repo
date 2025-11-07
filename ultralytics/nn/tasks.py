@@ -1612,7 +1612,8 @@ def parse_model(d, ch, verbose=True):
             C2fCIB,
             A2C2f,
             # @TODO 添加模块
-            SE
+            SE,
+            Conv3D
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
