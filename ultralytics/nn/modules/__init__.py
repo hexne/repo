@@ -183,5 +183,6 @@ __all__ = (
     "A2C2f",
     # @TODO, 添加模块
     "SE",
-    "Conv3D"
+    "Conv3D",
+    "MLP"
 )

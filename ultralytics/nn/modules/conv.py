@@ -24,7 +24,6 @@ __all__ = (
     "Concat",
     "RepConv",
     "Index",
-    "SE"
 )
 
 

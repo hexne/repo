@@ -17,10 +17,10 @@ class SE(nn.Module):
         return x * y
 
 class Conv3D(nn.Module):
-    def __init__(self, c1, c2):
+    def __init__(self, c1, c2, k, s, p):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv3d(c1, c2, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
+            nn.Conv3d(c1, c2, kernel_size=(1, k, k), stride=(1, s, s), padding=(0, p, p), bias=False),
             nn.BatchNorm3d(c2),
             nn.ReLU(inplace=True)
         )
@@ -30,3 +30,15 @@ class Conv3D(nn.Module):
         x = x.unsqueeze(2)              # → [B, c1, 1, H, W]
         x = self.conv(x)                # → [B, c2, 1, H/2, W/2]
         return x.squeeze(2)             # → [B, c2, H/2, W/2]
+
+class MLP(nn.Module):
+    def __init__(self, c1, c2):
+        super().__init__()
+        self.linear = nn.Linear(c1, c2)
+
+    def forward(self, x):
+        # x: [B, c1, H, W]
+        x = x.permute(0, 2, 3, 1)       # → [B, H, W, c1]
+        x = self.linear(x)              # → [B, H, W, c2]
+        x = x.permute(0, 3, 1, 2)       # → [B, c2, H, W]
+        return x
