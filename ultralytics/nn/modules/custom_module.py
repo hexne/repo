@@ -19,13 +19,10 @@ class SE(nn.Module):
 class Conv3D(nn.Module):
     def __init__(self, c1, c2):
         super().__init__()
-        self.conv = nn.Conv3d(
-            in_channels=c1,
-            out_channels=c2,
-            kernel_size=(1, 3, 3),
-            stride=(1, 2, 2),
-            padding=(0, 1, 1),
-            bias=False
+        self.conv = nn.Sequential(
+            nn.Conv3d(c1, c2, kernel_size=(1, 3, 3), stride=(1, 2, 2), padding=(0, 1, 1), bias=False),
+            nn.BatchNorm3d(c2),
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
