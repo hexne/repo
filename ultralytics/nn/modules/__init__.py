@@ -75,7 +75,6 @@ from .conv import (
     LightConv,
     RepConv,
     SpatialAttention,
-    SE
 )
 from .head import (
     OBB,
@@ -102,6 +101,8 @@ from .transformer import (
     TransformerEncoderLayer,
     TransformerLayer,
 )
+
+from .custom_module import *
 
 __all__ = (
     "Conv",
@@ -180,5 +181,6 @@ __all__ = (
     "TorchVision",
     "Index",
     "A2C2f",
+    # @TODO, 添加模块
     "SE"
 )
