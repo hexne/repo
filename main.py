@@ -70,7 +70,7 @@ def train_worker(args):
     c = args
     save_result(train(c))
 if __name__ == "__main__":
-    for i in [1, 2, 3, 4, 5]:
+    for i in [5]:
         print(f"\n{'='*60}")
         args = i
         process = mp.Process(target=train_worker, args=(args,))
