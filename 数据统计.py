@@ -9,7 +9,7 @@ if __name__ == '__main__':
     from pathlib import Path
     import json
 
-    folder = r'C:\Users\hexne\Desktop\results_通道分离卷积并调整通道数'
+    folder = r'C:\Users\hexne\Desktop\results_MLP和Conv3D'
 
     print("层数\tPrecision\tRecall\tmAP50\tmAP50-95\tF1\tTime(s)")
 
