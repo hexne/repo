@@ -16,8 +16,8 @@ scales: # model compound scaling constants, i.e. 'model=yolo11n.yaml' will call 
 
 # YOLO11n backbone
 backbone:
-  - [-1, 1, MLP, [64]]                  # 0: 输入建模 → [B, 64, H, W]
-  - [-1, 1, Conv, [128, 3, 2]]             # 1: 下采样 → [B, 128, H/2, W/2]
+  - [-1, 1, MLP, [32]]                  # 0: 输入建模 → [B, 64, H, W]
+  - [-1, 1, Conv, [64, 3, 2]]             # 1: 下采样 → [B, 128, H/2, W/2]
   - [-1, 1, Conv, [128, 3, 2]]            # 2: 空间建模 → [B, 128, H/2, W/2]
   - [-1, 2, C3k2, [256, False, 0.25]]      # 3: 局部语义 → [B, 256, H/2, W/2]
   - [-1, 1, Conv, [256, 3, 2]]             # 4: 下采样 → [B, 256, H/4, W/4]
