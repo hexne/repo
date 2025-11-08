@@ -1685,6 +1685,10 @@ def parse_model(d, ch, verbose=True):
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
+        # @TODO 添加拼接方式
+        elif m is BiFPNConcat:
+            c2 = sum(ch[x] for x in f)
+
         elif m in frozenset(
             {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect}
         ):

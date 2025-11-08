@@ -1,4 +1,6 @@
+import torch
 from torch import nn
+import torch.nn.functional as F
 
 class SE(nn.Module):
     def __init__(self, c, r=16):
@@ -42,3 +44,22 @@ class MLP(nn.Module):
         x = self.linear(x)              # → [B, H, W, c2]
         x = x.permute(0, 3, 1, 2)       # → [B, c2, H, W]
         return x
+
+
+class BiFPNConcat(nn.Module):
+    def __init__(self, dimension=1):
+        super(BiFPNConcat, self).__init__()
+        self.d = dimension
+        self.w = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
+        self.epsilon = 0.0001
+
+    def forward(self, x):
+        w = self.w
+        weight = w / (torch.sum(w, dim=0) + self.epsilon)  # 将权重进行归一化
+        x = [weight[0] * x[0], weight[1] * x[1]]
+        return torch.cat(x, self.d)
+    # def forward(self, x):
+    #     w = F.relu(self.w)
+    #     weight = w / (w.sum() + self.epsilon)
+    #     fused = weight[0] * x[0] + weight[1] * x[1]
+    #     return fused  # 不再 cat，直接返回融合结果
