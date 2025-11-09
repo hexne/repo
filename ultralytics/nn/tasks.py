@@ -1614,7 +1614,7 @@ def parse_model(d, ch, verbose=True):
             # @TODO 添加模块
             SE,
             Conv3D,
-            MLP
+            MLP,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
@@ -1710,10 +1710,15 @@ def parse_model(d, ch, verbose=True):
             c1 = ch[f]
             args = [*args[1:]]
         # @TODO 添加主模块
+        elif m is DataSwitch:
+            c1 = c2 = ch[f]
+            args = [*args[1:]]
+            m_ = m(args)
         else:
             c2 = ch[f]
 
-        m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+        if m is not DataSwitch:
+            m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         m_.np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type

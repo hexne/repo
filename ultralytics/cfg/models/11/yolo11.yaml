@@ -15,34 +15,12 @@ scales: # model compound scaling constants, i.e. 'model=yolo11n.yaml' will call 
   x: [1.00, 1.50, 512] # summary: 357 layers, 56966176 parameters, 56966160 gradients, 196.0 GFLOPs
 
 backbone:
-  - [-1, 1, Conv, [64, 3, 2]]
-  - [-1, 1, Conv, [128, 3, 2]]
-  - [-1, 2, C3k2, [256, False, 0.25]]
-  - [-1, 1, Conv, [256, 3, 2]]
-  - [-1, 2, C3k2, [512, False, 0.25]]
-  - [-1, 1, Conv, [512, 3, 2]]
-  - [-1, 2, C3k2, [512, True]]
-  - [-1, 1, Conv, [1024, 3, 2]]
-  - [-1, 2, C3k2, [1024, True]]
-  - [-1, 1, SPPF, [1024, 5]]
-  - [-1, 2, C2PSA, [1024]]
+  - [-1, 1, DataSwitch, []]
+  - [0, 1, Conv, [64, 3, 2]]
+  - [0, 1, Conv, [128, 3, 2]]
+  - [0, 1, Conv, [256, 3, 2]]
 
 # YOLO11n head
 head:
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [[-1, 6], 1, BiFPNConcat, [1]]
-  - [-1, 2, C3k2, [512, False]] # 13
 
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
-  - [[-1, 4], 1, BiFPNConcat, [1]]
-  - [-1, 2, C3k2, [256, False]]
-
-  - [-1, 1, Conv, [256, 3, 2]]
-  - [[-1, 13], 1, BiFPNConcat, [1]]
-  - [-1, 2, C3k2, [512, False]]
-
-  - [-1, 1, Conv, [512, 3, 2]]
-  - [[-1, 10], 1,BiFPNConcat, [1]]
-  - [-1, 2, C3k2, [1024, True]]
-
-  - [[16, 19, 22], 1, Detect, [nc]]
+  - [[1, 2, 3], 1, Detect, [nc]]

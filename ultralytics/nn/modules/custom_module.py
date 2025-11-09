@@ -58,8 +58,12 @@ class BiFPNConcat(nn.Module):
         weight = w / (torch.sum(w, dim=0) + self.epsilon)  # 将权重进行归一化
         x = [weight[0] * x[0], weight[1] * x[1]]
         return torch.cat(x, self.d)
-    # def forward(self, x):
-    #     w = F.relu(self.w)
-    #     weight = w / (w.sum() + self.epsilon)
-    #     fused = weight[0] * x[0] + weight[1] * x[1]
-    #     return fused  # 不再 cat，直接返回融合结果
+
+
+class DataSwitch(nn.Module):
+    def __init__(self, c1):
+        super().__init__()
+
+    def forward(self, x):
+        print(f"shape is {x.shape}")
+        return x
