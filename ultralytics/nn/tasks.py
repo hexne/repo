@@ -1615,6 +1615,7 @@ def parse_model(d, ch, verbose=True):
             SE,
             Conv3D,
             MLP,
+            DWT,
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
@@ -1688,7 +1689,8 @@ def parse_model(d, ch, verbose=True):
         # @TODO 添加拼接方式
         elif m is BiFPNConcat:
             c2 = sum(ch[x] for x in f)
-
+        elif m is BiFPN:
+            c2 = sum(ch[x] for x in f)
         elif m in frozenset(
             {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect}
         ):

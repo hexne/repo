@@ -12,12 +12,12 @@ from pathlib import Path
 count = 0
 def train(c):
     begin_time = time.time()
-    model = YOLO("./ultralytics/cfg/models/11/yolo11.yaml")
+    model = YOLO("custom.yaml")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
         epochs=300,
-        batch=64,
+        batch=32,
         workers=2,
         device=0,
         name=f"{c}",
