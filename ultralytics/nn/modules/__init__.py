@@ -185,7 +185,7 @@ __all__ = (
     "SE",
     "Conv3D",
     "MLP",
-    "BiFPNConcat",
+    "BiFPN2",
     "DataSwitch",
     "BiFPN",
     "DWT"

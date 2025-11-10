@@ -1687,8 +1687,9 @@ def parse_model(d, ch, verbose=True):
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         # @TODO 添加拼接方式
-        elif m is BiFPNConcat:
-            c2 = sum(ch[x] for x in f)
+        elif m is BiFPN2:
+            # c2 = sum(ch[x] for x in f) # 拼接 推断通道数
+            c2 = ch[f[0]] # 融合推断通道数
         elif m is BiFPN:
             c2 = sum(ch[x] for x in f)
         elif m in frozenset(

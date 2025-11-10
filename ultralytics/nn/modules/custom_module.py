@@ -46,43 +46,51 @@ class MLP(nn.Module):
         return x
 
 
-class BiFPNConcat(nn.Module):
+class BiFPN2(nn.Module):
     def __init__(self, dimension=1):
-        super(BiFPNConcat, self).__init__()
+        super(BiFPN2, self).__init__()
         self.d = dimension
-        self.w = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
+        self.w = nn.Parameter(torch.ones(2, dtype=torch.float32), requires_grad=True)
         self.epsilon = 0.0001
 
     def forward(self, x):
+        # print(f"BiFPN2 in {x[0].shape}, {x[1].shape}")
         w = self.w
-        weight = w / (torch.sum(w, dim=0) + self.epsilon)  # 将权重进行归一化
-        x = [weight[0] * x[0], weight[1] * x[1]]
-        return torch.cat(x, self.d)
+        weight = w / (torch.sum(w, dim=0) + self.epsilon)
+        fused = weight[0] * x[0] + weight[1] * x[1]
+        # print(f"BiFPN2 out {fused.shape}")
+        return fused
+
 
 # 融合版
-# class BiFPN(nn.Module):
-#     def __init__(self, dimension=1):
-#         super(BiFPN, self).__init__()
-#         self.d = dimension  # 保留接口一致性，实际未使用
-#         self.w = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
-#         self.eps = 1e-4
-#
-#     def forward(self, x):
-#         # x: list of 3 tensors, each [B, C, H, W]
-#         w = F.relu(self.w)
-#         weight = w / (w.sum() + self.eps)
-#         fused = weight[0] * x[0] + weight[1] * x[1] + weight[2] * x[2]  # [B, C, H, W]
-#         return fused
-
-# 拼接版本
 class BiFPN(nn.Module):
     def __init__(self, dimension=1):
         super(BiFPN, self).__init__()
-        self.d = dimension  # 通常为 1（通道维度）
+        self.d = dimension  # 保留接口一致性，实际未使用
+        self.w = nn.Parameter(torch.ones(3, dtype=torch.float32), requires_grad=True)
+        self.eps = 1e-4
 
     def forward(self, x):
         # x: list of 3 tensors, each [B, C, H, W]
-        return torch.cat(x, dim=self.d)  # [B, 3*C, H, W]
+        # print(f"in {x[0].shape}, {x[1].shape}, {x[2].shape}")
+        w = F.relu(self.w)
+        weight = w / (w.sum() + self.eps)
+        # print(f"{x[0].shape}, {x[1].shape},  {x[2].shape}")
+
+        fused = weight[0] * x[0] + weight[1] * x[1] + weight[2] * x[2]  # [B, C, H, W]
+        # print(f"fused {fused.shape}")
+
+        return fused
+
+# 拼接版本
+# class BiFPN(nn.Module):
+#     def __init__(self, dimension=1):
+#         super(BiFPN, self).__init__()
+#         self.d = dimension  # 通常为 1（通道维度）
+#
+#     def forward(self, x):
+#         # x: list of 3 tensors, each [B, C, H, W]
+#         return torch.cat(x, dim=self.d)  # [B, 3*C, H, W]
 
 
 class DataSwitch(nn.Module):
@@ -90,6 +98,7 @@ class DataSwitch(nn.Module):
         super().__init__()
 
     def forward(self, x):
+        # print(f"DataSwitch {x.shape}")
         return x
 
 import torch
@@ -104,6 +113,7 @@ class DWT(nn.Module):
         self.eps = 1e-4
 
     def forward(self, x):
+        # print(f"DWT in {x.shape}")
         Yl, Yh = self.dwt(x)  # Yl: LL, Yh[0]: [B, C, 3, H/2, W/2] or list of 3 tensors
 
         # 兼容两种格式：Yh[0] 是 list 或是合并张量
@@ -115,4 +125,7 @@ class DWT(nn.Module):
             raise ValueError(f"Expected Yh[0] to contain 3 tensors, got {type(Yh[0])} with shape {getattr(Yh[0], 'shape', 'N/A')}")
 
         x_cat = torch.cat([Yl, LH, HL, HH], dim=1)  # [B, 4*c1, H/2, W/2]
+        ret =  self.conv(x_cat)
+        # print(f"DWT out {ret.shape}")
+        return ret
         return self.conv(x_cat)  # [B, c2, H/2, W/2]
