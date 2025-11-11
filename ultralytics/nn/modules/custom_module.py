@@ -1,22 +1,26 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-
 class SE(nn.Module):
     def __init__(self, c, r=16):
         super().__init__()
+        reduced = max(1, c // r)
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
-            nn.Conv2d(c, c // r, 1, bias=False),
+            nn.Conv2d(c, reduced, 1, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv2d(c // r, c, 1, bias=False),
+            nn.Conv2d(reduced, c, 1, bias=False),
             nn.Sigmoid()
         )
 
     def forward(self, x):
+        # print(f"in shape: {x.shape}")
         y = self.pool(x)
         y = self.fc(y)
+        # ret = x * y
+        # print(f"out shape: {ret.shape}")
         return x * y
+
 
 class Conv3D(nn.Module):
     def __init__(self, c1, c2, k, s, p):
