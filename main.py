@@ -17,11 +17,12 @@ def train(c):
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
         epochs=300,
-        batch=32,
+        batch=64,
         workers=2,
         device=0,
         name=f"{c}",
-        patience=0
+        patience=0,
+        amp=False
     )
     global count
     count= int(time.time() - begin_time)
