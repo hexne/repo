@@ -17,7 +17,7 @@ def train(c):
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
         epochs=300,
-        batch=64,
+        batch=32,
         workers=2,
         device=0,
         name=f"{c}",

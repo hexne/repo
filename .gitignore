@@ -5,3 +5,5 @@ __pycache__
 results
 dataset
 dinov3
+绘制各个改进的各项指标.py
+绘制全体图像.py
