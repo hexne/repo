@@ -1614,6 +1614,7 @@ def parse_model(d, ch, verbose=True):
             # @TODO 添加模块
             SE,
             Conv3D,
+            PConv,
             MLP,
             DWT,
         }

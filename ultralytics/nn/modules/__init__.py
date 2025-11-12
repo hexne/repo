@@ -184,6 +184,7 @@ __all__ = (
     # @TODO, 添加模块
     "SE",
     "Conv3D",
+    "PConv",
     "MLP",
     "BiFPN2",
     "DataSwitch",
