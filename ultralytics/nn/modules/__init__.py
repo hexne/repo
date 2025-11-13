@@ -187,7 +187,11 @@ __all__ = (
     "PConv",
     "MLP",
     "BiFPN2",
+    "BiFPNConcat",
     "DataSwitch",
     "BiFPN",
-    "DWT"
+    "DWT",
+    "DWTBackbone",
+    "CatBackbone",
+    "GetFeature"
 )

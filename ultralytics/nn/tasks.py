@@ -1688,6 +1688,8 @@ def parse_model(d, ch, verbose=True):
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
         # @TODO 添加拼接方式
+        elif m is BiFPNConcat:
+            c2 = sum(ch[x] for x in f)
         elif m is BiFPN2:
             # c2 = sum(ch[x] for x in f) # 拼接 推断通道数
             c2 = ch[f[0]] # 融合推断通道数
@@ -1718,11 +1720,26 @@ def parse_model(d, ch, verbose=True):
             c1 = c2 = ch[f]
             args = [*args[1:]]
             m_ = m(args)
+        # ch[f] 是当前层的输入通道数
+        elif m is DWTBackbone:
+            c1 = ch[f]
+            m_ = m(c1)
+        elif m is CatBackbone:
+            c1 = ch[f[1]]
+            m_ = m(c1)
+            args = [*args[1:]]
+        elif m is GetFeature:
+            m_ = m(*args)
+            c2 = m_.out_channels
         else:
             c2 = ch[f]
 
-        if m is not DataSwitch:
+        if (m is not DataSwitch
+                and m is not DWTBackbone
+                and m is not CatBackbone
+                and m is not GetFeature):
             m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         m_.np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type

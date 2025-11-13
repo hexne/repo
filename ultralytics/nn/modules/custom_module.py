@@ -88,15 +88,15 @@ class BiFPN(nn.Module):
 
         return fused
 
-# 拼接版本
-# class BiFPN(nn.Module):
-#     def __init__(self, dimension=1):
-#         super(BiFPN, self).__init__()
-#         self.d = dimension  # 通常为 1（通道维度）
-#
-#     def forward(self, x):
-#         # x: list of 3 tensors, each [B, C, H, W]
-#         return torch.cat(x, dim=self.d)  # [B, 3*C, H, W]
+class BiFPNConcat(nn.Module):
+    def __init__(self, dimension=1):
+        super(BiFPNConcat, self).__init__()
+        self.d = dimension  # 通常为 1（通道维度）
+
+    def forward(self, x):
+        # x: list of 3 tensors, each [B, C, H, W]
+        # print(f"BiFPNConcat in {x[0].shape}, {x[1].shape}")
+        return torch.cat(x, dim=self.d)  # [B, 3*C, H, W]
 
 
 class DataSwitch(nn.Module):
@@ -156,3 +156,107 @@ class PConv(nn.Module):
         yh0 = self.ch(self.pad[2](x))
         yh1 = self.ch(self.pad[3](x))
         return self.cat(torch.cat([yw0, yw1, yh0, yh1], dim=1))
+
+
+class DWTBackbone(nn.Module):
+    def __init__(self, c1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(c1, 64, 3, 2, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(64, 128, 3, 2, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(128, 256, 3, 2, padding=1, bias=False)
+        self.conv4 = nn.Conv2d(256, 512, 3, 2, padding=1, bias=False)
+        self.conv5 = nn.Conv2d(512, 1024, 3, 2, padding=1, bias=False)
+
+
+    def forward(self, x):
+        # print(f"DWTBackbone: {x.shape}")
+        p1 = self.conv1(x)
+        p2 = self.conv2(p1)
+        p3 = self.conv3(p2)
+        p4 = self.conv4(p3)
+        p5 = self.conv5(p4)
+
+        # print(f"DWTBackbone: out {p1.shape}, {p2.shape}, {p3.shape}, {p4.shape}, {p5.shape}")
+        return [p3, p4, p5]
+
+
+def get_image(image, pos, size):
+    B, _, H, W = image.shape
+    pos_x, pos_y = pos
+
+    # 将归一化坐标映射到像素坐标
+    cx = (pos_x * W).clamp(0, W - 1)
+    cy = (pos_y * H).clamp(0, H - 1)
+
+    # 计算左上角坐标，贴边处理
+    x1 = (cx - size // 2).clamp(0, W - size)
+    y1 = (cy - size // 2).clamp(0, H - size)
+
+    # 构造采样网格
+    lin = torch.linspace(0, size - 1, steps=size, device=image.device)
+    grid_y, grid_x = torch.meshgrid(lin, lin, indexing='ij')
+    grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
+
+    # 加上偏移量
+    grid[:, :, :, 0] += x1.view(B, 1, 1)
+    grid[:, :, :, 1] += y1.view(B, 1, 1)
+
+    # 归一化到 [-1, 1]
+    grid[:, :, :, 0] = grid[:, :, :, 0] / (W - 1) * 2 - 1
+    grid[:, :, :, 1] = grid[:, :, :, 1] / (H - 1) * 2 - 1
+
+    # 采样
+    patch = F.grid_sample(image, grid, mode='bilinear', align_corners=True)
+    return patch  # [B, 1, size, size]
+
+
+class CatBackbone(nn.Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        self.coord_conv = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),  # [B, C, h, w] → [B, C, 1, 1]
+            nn.Conv2d(in_channels, 2, 1)  # [B, C, 1, 1] → [B, 2, 1, 1]
+        )
+        self.conv1 = nn.Conv2d(1, 64, 3, 2, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(1, 64, 3, 2, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(1, 64, 3, 2, padding=1, bias=False)
+
+
+    def forward(self, x):
+        image, feat = x  # image: [B, C_img, H, W], feat: [B, C_feat, h, w]
+        B, _, H, W = image.shape
+
+        # 特征图 → 坐标
+        coord = self.coord_conv(feat)  # [B, 2, 1, 1]
+        coord = coord.permute(0, 2, 3, 1)  # → [B, 1, 1, 2]
+        coord = coord.view(B, 2).sigmoid()  # 归一化到 [0, 1]
+        pos_x, pos_y = coord[:, 0], coord[:, 1]  # [B], [B]
+
+        # 原图中间通道切片
+        mid_img = image[:, image.shape[1] // 2:image.shape[1] // 2 + 1, :, :]  # [B, 1, H, W]
+
+        # 裁剪子图
+        image1 = get_image(mid_img, (pos_x, pos_y), H // 4)
+        image2 = get_image(mid_img, (pos_x, pos_y), H // 8)
+        image3 = get_image(mid_img, (pos_x, pos_y), H // 16)
+        # print(f"CatBackbone {image1.shape}, {image2.shape}, {image3.shape}")
+
+        ret1 = self.conv1(image1)
+        ret2 = self.conv2(image2)
+        ret3 = self.conv3(image3)
+        # print(f"conv after {ret1.shape}, {ret2.shape}, {ret3.shape}")
+        return [ret1, ret2, ret3]
+        return [self.conv1(image1), self.conv2(image2), self.conv3(image3)]
+
+
+class GetFeature(nn.Module):
+    def __init__(self, index : int, out_channels : int):
+        super().__init__()
+        self.index = index
+        self.out_channels = out_channels
+
+    def forward(self, features):
+        ret = features[self.index]
+        # print(f"GetFeature: {ret.shape}")
+        return ret
+        return features[self.index]
