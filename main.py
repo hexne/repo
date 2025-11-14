@@ -18,7 +18,7 @@ def train(c):
         imgsz=512,
         epochs=300,
         batch=16,
-        workers=8,
+        workers=2,
         device=0,
         name=f"{c}",
         patience=0,

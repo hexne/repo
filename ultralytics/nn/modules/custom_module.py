@@ -158,26 +158,58 @@ class PConv(nn.Module):
         return self.cat(torch.cat([yw0, yw1, yh0, yh1], dim=1))
 
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+# GPU-friendly Haar DWT，下采样到 H//2, W//2
+class HaarDWT(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # 定义 Haar 小波核
+        ll = torch.tensor([[0.5, 0.5],
+                           [0.5, 0.5]])
+        lh = torch.tensor([[0.5, 0.5],
+                           [-0.5, -0.5]])
+        hl = torch.tensor([[0.5, -0.5],
+                           [0.5, -0.5]])
+        hh = torch.tensor([[0.5, -0.5],
+                           [-0.5, 0.5]])
+        # 堆叠成 (4,1,2,2)
+        weight = torch.stack([ll, lh, hl, hh]).unsqueeze(1)
+        self.register_buffer('weight', weight)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        # 每个通道独立做 DWT
+        weight = self.weight.repeat(C, 1, 1, 1)  # (4*C,1,2,2)
+        out = F.conv2d(x, weight, stride=2, groups=C)  # (B,4*C,H//2,W//2)
+        return out
+
+
 class DWTBackbone(nn.Module):
     def __init__(self, c1):
         super().__init__()
-        self.conv1 = nn.Conv2d(c1, 64, 3, 2, padding=1, bias=False)
-        self.conv2 = nn.Conv2d(64, 128, 3, 2, padding=1, bias=False)
-        self.conv3 = nn.Conv2d(128, 256, 3, 2, padding=1, bias=False)
-        self.conv4 = nn.Conv2d(256, 512, 3, 2, padding=1, bias=False)
-        self.conv5 = nn.Conv2d(512, 1024, 3, 2, padding=1, bias=False)
+        # 用 1x1 conv 做通道映射，保持原始接口一致
+        self.conv1 = nn.Conv2d(c1*4, 64, 1, bias=False)
+        self.conv2 = nn.Conv2d(64*4, 128, 1, bias=False)
+        self.conv3 = nn.Conv2d(128*4, 256, 1, bias=False)
+        self.conv4 = nn.Conv2d(256*4, 512, 1, bias=False)
+        self.conv5 = nn.Conv2d(512*4, 1024, 1, bias=False)
 
+        self.dwt = HaarDWT()
 
     def forward(self, x):
         # print(f"DWTBackbone: {x.shape}")
-        p1 = self.conv1(x)
-        p2 = self.conv2(p1)
-        p3 = self.conv3(p2)
-        p4 = self.conv4(p3)
-        p5 = self.conv5(p4)
+        p1 = self.conv1(self.dwt(x))
+        p2 = self.conv2(self.dwt(p1))
+        p3 = self.conv3(self.dwt(p2))
+        p4 = self.conv4(self.dwt(p3))
+        p5 = self.conv5(self.dwt(p4))
 
         # print(f"DWTBackbone: out {p1.shape}, {p2.shape}, {p3.shape}, {p4.shape}, {p5.shape}")
         return [p3, p4, p5]
+
 
 
 def get_image(image, pos, size):
