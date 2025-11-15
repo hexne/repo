@@ -158,6 +158,72 @@ class PConv(nn.Module):
         return self.cat(torch.cat([yw0, yw1, yh0, yh1], dim=1))
 
 
+
+
+
+
+import torch
+import torch.nn as nn
+
+# YOLO里常见的Conv封装
+class Conv(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
+        super().__init__()
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act else nn.Identity()
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+
+def autopad(k, p=None):  # 自动padding
+    if p is None:
+        p = k // 2
+    return p
+
+
+class SEBlock(nn.Module):
+    ''' Squeeze-and-Excitation 通道注意力模块 '''
+    def __init__(self, channels, reduction=2):
+        super().__init__()
+        reduced = max(channels // reduction, 1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(channels, reduced, 1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(reduced, channels, 1, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        w = self.avg_pool(x)
+        w = self.fc(w)
+        return x * w
+
+
+class DSConvSE(nn.Module):
+    ''' Depthwise Conv → SE → Pointwise Conv(1x1) '''
+    def __init__(self, c1, c2, k=3, s=1):
+        super().__init__()
+        # 深度卷积
+        self.dwconv = Conv(c1, c1, k, s, g=c1, act=True)
+        # SE 注意力
+        self.se = SEBlock(c1, reduction=2)
+        # Pointwise 1x1 卷积
+        self.pconv = Conv(c1, c2, k=1, s=1, p=0, g=1, act=True)
+
+    def forward(self, x):
+        x = self.dwconv(x)   # [B, c1, h, w]
+        x = self.se(x)       # 通道加权
+        x = self.pconv(x)    # [B, c2, h, w]
+        return x
+
+
+
+
+
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -212,74 +278,119 @@ class DWTBackbone(nn.Module):
 
 
 
-def get_image(image, pos, size):
-    B, _, H, W = image.shape
-    pos_x, pos_y = pos
+import torch
+import torch.nn as nn
 
-    # 将归一化坐标映射到像素坐标
-    cx = (pos_x * W).clamp(0, W - 1)
-    cy = (pos_y * H).clamp(0, H - 1)
 
-    # 计算左上角坐标，贴边处理
-    x1 = (cx - size // 2).clamp(0, W - size)
-    y1 = (cy - size // 2).clamp(0, H - size)
+def clamp_int(val, low, high):
+    return max(low, min(val, high))
 
-    # 构造采样网格
-    lin = torch.linspace(0, size - 1, steps=size, device=image.device)
-    grid_y, grid_x = torch.meshgrid(lin, lin, indexing='ij')
-    grid = torch.stack((grid_x, grid_y), dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
 
-    # 加上偏移量
-    grid[:, :, :, 0] += x1.view(B, 1, 1)
-    grid[:, :, :, 1] += y1.view(B, 1, 1)
+def crop_square_include_point(img, pos_xy, crop_size):
+    """
+    在 img 中裁剪一个包含 (x,y) 的正方形窗口，大小为 crop_size。
+    - 当靠近边界时，将窗口整体向内移动，保证窗口完整且大小固定。
+    - 不做 padding。
+    img: [B, C, H, W]
+    pos_xy: (x, y) 像素坐标，Tensor shape [B]
+    crop_size: int
+    return: [B, C, crop_size, crop_size]
+    """
+    B, C, H, W = img.shape
+    x, y = pos_xy
+    x = torch.round(x).long()
+    y = torch.round(y).long()
 
-    # 归一化到 [-1, 1]
-    grid[:, :, :, 0] = grid[:, :, :, 0] / (W - 1) * 2 - 1
-    grid[:, :, :, 1] = grid[:, :, :, 1] / (H - 1) * 2 - 1
+    max_x1 = max(W - crop_size, 0)
+    max_y1 = max(H - crop_size, 0)
+    half = crop_size // 2
 
-    # 采样
-    patch = F.grid_sample(image, grid, mode='bilinear', align_corners=True)
-    return patch  # [B, 1, size, size]
+    crops = []
+    for b in range(B):
+        x1 = clamp_int(x[b].item() - half, 0, max_x1)
+        y1 = clamp_int(y[b].item() - half, 0, max_y1)
+        x2 = x1 + crop_size
+        y2 = y1 + crop_size
+        crop = img[b:b+1, :, y1:y2, x1:x2]  # [1, C, crop_size, crop_size]
+        crops.append(crop)
+
+    return torch.cat(crops, dim=0)  # [B, C, crop_size, crop_size]
+
+
+class SEBlock(nn.Module):
+    def __init__(self, channels, reduction=2):
+        super().__init__()
+        reduced = max(channels // reduction, 1)
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(channels, reduced, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(reduced, channels, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        w = self.avg_pool(x)
+        w = self.fc(w)
+        return x * w
+
+
+class CropBlock(nn.Module):
+    """
+    SE → Depthwise Conv(stride=2) → Pointwise Conv(1x1 → 64)
+    """
+    def __init__(self, in_channels, out_channels=64):
+        super().__init__()
+        # SE 注意力先做
+        self.se = SEBlock(in_channels, reduction=2)
+        # Depthwise Conv，下采样
+        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1, groups=in_channels)
+        # Pointwise Conv
+        self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        x = self.se(x)          # [B, C, h, w]
+        x = self.depthwise(x)   # [B, C, h/2, w/2]
+        x = self.pointwise(x)   # [B, 64, h/2, w/2]
+        return x
 
 
 class CatBackbone(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, in_channels_img, in_channels_feat, out_channels=64):
         super().__init__()
         self.coord_conv = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),  # [B, C, h, w] → [B, C, 1, 1]
-            nn.Conv2d(in_channels, 2, 1)  # [B, C, 1, 1] → [B, 2, 1, 1]
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(in_channels_feat, 2, 1)
         )
-        self.conv1 = nn.Conv2d(1, 64, 3, 2, padding=1, bias=False)
-        self.conv2 = nn.Conv2d(1, 64, 3, 2, padding=1, bias=False)
-        self.conv3 = nn.Conv2d(1, 64, 3, 2, padding=1, bias=False)
-
+        self.block1 = CropBlock(in_channels_img, out_channels)
+        self.block2 = CropBlock(in_channels_img, out_channels)
+        self.block3 = CropBlock(in_channels_img, out_channels)
 
     def forward(self, x):
         image, feat = x  # image: [B, C_img, H, W], feat: [B, C_feat, h, w]
-        B, _, H, W = image.shape
+        B, C_img, H, W = image.shape
 
-        # 特征图 → 坐标
-        coord = self.coord_conv(feat)  # [B, 2, 1, 1]
-        coord = coord.permute(0, 2, 3, 1)  # → [B, 1, 1, 2]
-        coord = coord.view(B, 2).sigmoid()  # 归一化到 [0, 1]
-        pos_x, pos_y = coord[:, 0], coord[:, 1]  # [B], [B]
+        # 生成归一化坐标并转为像素坐标
+        coord = self.coord_conv(feat)          # [B, 2, 1, 1]
+        coord = coord.view(B, 2).sigmoid()     # [B,2]
+        pos_x = coord[:, 0] * (W - 1)
+        pos_y = coord[:, 1] * (H - 1)
 
-        # 原图中间通道切片
-        mid_img = image[:, image.shape[1] // 2:image.shape[1] // 2 + 1, :, :]  # [B, 1, H, W]
+        # 多尺度裁剪
+        s1 = max(H // 4, 1)
+        s2 = max(H // 8, 1)
+        s3 = max(H // 16, 1)
 
-        # 裁剪子图
-        image1 = get_image(mid_img, (pos_x, pos_y), H // 4)
-        image2 = get_image(mid_img, (pos_x, pos_y), H // 8)
-        image3 = get_image(mid_img, (pos_x, pos_y), H // 16)
-        # print(f"CatBackbone {image1.shape}, {image2.shape}, {image3.shape}")
+        patch1 = crop_square_include_point(image, (pos_x, pos_y), s1)
+        patch2 = crop_square_include_point(image, (pos_x, pos_y), s2)
+        patch3 = crop_square_include_point(image, (pos_x, pos_y), s3)
 
-        ret1 = self.conv1(image1)
-        ret2 = self.conv2(image2)
-        ret3 = self.conv3(image3)
-        # print(f"conv after {ret1.shape}, {ret2.shape}, {ret3.shape}")
+        # 特征提取（尺寸减半，通道数固定为64）
+        ret1 = self.block1(patch1)  # [B, 64, s1/2, s1/2]
+        ret2 = self.block2(patch2)  # [B, 64, s2/2, s2/2]
+        ret3 = self.block3(patch3)  # [B, 64, s3/2, s3/2]
+
         return [ret1, ret2, ret3]
-        return [self.conv1(image1), self.conv2(image2), self.conv3(image3)]
-
 
 class GetFeature(nn.Module):
     def __init__(self, index : int, out_channels : int):

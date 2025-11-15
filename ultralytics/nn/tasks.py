@@ -1615,6 +1615,7 @@ def parse_model(d, ch, verbose=True):
             SE,
             Conv3D,
             PConv,
+            DSConvSE,
             MLP,
             DWT,
         }

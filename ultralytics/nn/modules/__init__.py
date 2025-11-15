@@ -193,5 +193,8 @@ __all__ = (
     "DWT",
     "DWTBackbone",
     "CatBackbone",
-    "GetFeature"
+    "GetFeature",
+    "DSConvSE",
+    "D"
+
 )
