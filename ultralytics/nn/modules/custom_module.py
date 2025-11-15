@@ -280,41 +280,7 @@ class DWTBackbone(nn.Module):
 
 import torch
 import torch.nn as nn
-
-
-def clamp_int(val, low, high):
-    return max(low, min(val, high))
-
-
-def crop_square_include_point(img, pos_xy, crop_size):
-    """
-    在 img 中裁剪一个包含 (x,y) 的正方形窗口，大小为 crop_size。
-    - 当靠近边界时，将窗口整体向内移动，保证窗口完整且大小固定。
-    - 不做 padding。
-    img: [B, C, H, W]
-    pos_xy: (x, y) 像素坐标，Tensor shape [B]
-    crop_size: int
-    return: [B, C, crop_size, crop_size]
-    """
-    B, C, H, W = img.shape
-    x, y = pos_xy
-    x = torch.round(x).long()
-    y = torch.round(y).long()
-
-    max_x1 = max(W - crop_size, 0)
-    max_y1 = max(H - crop_size, 0)
-    half = crop_size // 2
-
-    crops = []
-    for b in range(B):
-        x1 = clamp_int(x[b].item() - half, 0, max_x1)
-        y1 = clamp_int(y[b].item() - half, 0, max_y1)
-        x2 = x1 + crop_size
-        y2 = y1 + crop_size
-        crop = img[b:b+1, :, y1:y2, x1:x2]  # [1, C, crop_size, crop_size]
-        crops.append(crop)
-
-    return torch.cat(crops, dim=0)  # [B, C, crop_size, crop_size]
+import torch.nn.functional as F
 
 
 class SEBlock(nn.Module):
@@ -337,22 +303,47 @@ class SEBlock(nn.Module):
 
 class CropBlock(nn.Module):
     """
-    SE → Depthwise Conv(stride=2) → Pointwise Conv(1x1 → 64)
+    SE → Depthwise Conv(stride=2) → Pointwise Conv(1x1 → out_channels)
     """
     def __init__(self, in_channels, out_channels=64):
         super().__init__()
-        # SE 注意力先做
         self.se = SEBlock(in_channels, reduction=2)
-        # Depthwise Conv，下采样
         self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1, groups=in_channels)
-        # Pointwise Conv
         self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1)
 
     def forward(self, x):
-        x = self.se(x)          # [B, C, h, w]
-        x = self.depthwise(x)   # [B, C, h/2, w/2]
-        x = self.pointwise(x)   # [B, 64, h/2, w/2]
+        x = self.se(x)
+        x = self.depthwise(x)
+        x = self.pointwise(x)
         return x
+
+
+def crop_square_grid(img, pos_xy, crop_size):
+    """
+    使用 grid_sample 一次性裁剪 batch 内所有样本。
+    img: [B, C, H, W]
+    pos_xy: [B, 2] 像素坐标 (x,y)
+    crop_size: int
+    return: [B, C, crop_size, crop_size]
+    """
+    B, C, H, W = img.shape
+    # 归一化坐标到 [-1,1]
+    cx = pos_xy[:, 0] / (W - 1) * 2 - 1
+    cy = pos_xy[:, 1] / (H - 1) * 2 - 1
+
+    # 构造采样网格
+    lin = torch.linspace(-1, 1, crop_size, device=img.device)
+    grid_y, grid_x = torch.meshgrid(lin, lin, indexing="ij")
+    grid = torch.stack([grid_x, grid_y], dim=-1)  # [crop_size, crop_size, 2]
+    grid = grid.unsqueeze(0).repeat(B, 1, 1, 1)  # [B, crop_size, crop_size, 2]
+
+    # 平移到目标点
+    grid[..., 0] += cx.view(B, 1, 1)
+    grid[..., 1] += cy.view(B, 1, 1)
+
+    # 采样
+    crops = F.grid_sample(img, grid, mode="bilinear", align_corners=True)
+    return crops
 
 
 class CatBackbone(nn.Module):
@@ -370,27 +361,26 @@ class CatBackbone(nn.Module):
         image, feat = x  # image: [B, C_img, H, W], feat: [B, C_feat, h, w]
         B, C_img, H, W = image.shape
 
-        # 生成归一化坐标并转为像素坐标
-        coord = self.coord_conv(feat)          # [B, 2, 1, 1]
-        coord = coord.view(B, 2).sigmoid()     # [B,2]
+        # 生成坐标
+        coord = self.coord_conv(feat).view(B, 2).sigmoid()
         pos_x = coord[:, 0] * (W - 1)
         pos_y = coord[:, 1] * (H - 1)
+        pos_xy = torch.stack([pos_x, pos_y], dim=1)  # [B,2]
 
         # 多尺度裁剪
-        s1 = max(H // 4, 1)
-        s2 = max(H // 8, 1)
-        s3 = max(H // 16, 1)
+        s1, s2, s3 = H // 4, H // 8, H // 16
+        patch1 = crop_square_grid(image, pos_xy, s1)
+        patch2 = crop_square_grid(image, pos_xy, s2)
+        patch3 = crop_square_grid(image, pos_xy, s3)
 
-        patch1 = crop_square_include_point(image, (pos_x, pos_y), s1)
-        patch2 = crop_square_include_point(image, (pos_x, pos_y), s2)
-        patch3 = crop_square_include_point(image, (pos_x, pos_y), s3)
-
-        # 特征提取（尺寸减半，通道数固定为64）
-        ret1 = self.block1(patch1)  # [B, 64, s1/2, s1/2]
-        ret2 = self.block2(patch2)  # [B, 64, s2/2, s2/2]
-        ret3 = self.block3(patch3)  # [B, 64, s3/2, s3/2]
+        # 特征提取
+        ret1 = self.block1(patch1)
+        ret2 = self.block2(patch2)
+        ret3 = self.block3(patch3)
 
         return [ret1, ret2, ret3]
+
+
 
 class GetFeature(nn.Module):
     def __init__(self, index : int, out_channels : int):

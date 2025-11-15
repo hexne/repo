@@ -1726,8 +1726,10 @@ def parse_model(d, ch, verbose=True):
             c1 = ch[f]
             m_ = m(c1)
         elif m is CatBackbone:
+            image_c  = ch[f[0]]
+            feat_c = ch[f[1]]
             c1 = ch[f[1]]
-            m_ = m(c1)
+            m_ = m(image_c, feat_c)
             args = [*args[1:]]
         elif m is GetFeature:
             m_ = m(*args)
