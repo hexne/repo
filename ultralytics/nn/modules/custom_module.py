@@ -165,24 +165,6 @@ class PConv(nn.Module):
 import torch
 import torch.nn as nn
 
-# YOLO里常见的Conv封装
-class Conv(nn.Module):
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):
-        super().__init__()
-        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
-        self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU() if act else nn.Identity()
-
-    def forward(self, x):
-        return self.act(self.bn(self.conv(x)))
-
-
-def autopad(k, p=None):  # 自动padding
-    if p is None:
-        p = k // 2
-    return p
-
-
 class SEBlock(nn.Module):
     ''' Squeeze-and-Excitation 通道注意力模块 '''
     def __init__(self, channels, reduction=2):
@@ -206,23 +188,24 @@ class DSConvSE(nn.Module):
     ''' Depthwise Conv → SE → Pointwise Conv(1x1) '''
     def __init__(self, c1, c2, k=3, s=1):
         super().__init__()
-        # 深度卷积
-        self.dwconv = Conv(c1, c1, k, s, g=c1, act=True)
+        # 深度卷积 (groups=c1)
+        self.dwconv = nn.Conv2d(c1, c1, kernel_size=k, stride=s, padding=k//2, groups=c1, bias=False)
+        self.bn1 = nn.BatchNorm2d(c1)
+        self.act1 = nn.SiLU()
+
         # SE 注意力
         self.se = SEBlock(c1, reduction=2)
+
         # Pointwise 1x1 卷积
-        self.pconv = Conv(c1, c2, k=1, s=1, p=0, g=1, act=True)
+        self.pconv = nn.Conv2d(c1, c2, kernel_size=1, stride=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(c2)
+        self.act2 = nn.SiLU()
 
     def forward(self, x):
-        x = self.dwconv(x)   # [B, c1, h, w]
-        x = self.se(x)       # 通道加权
-        x = self.pconv(x)    # [B, c2, h, w]
+        x = self.act1(self.bn1(self.dwconv(x)))  # depthwise
+        x = self.se(x)                           # SE
+        x = self.act2(self.bn2(self.pconv(x)))   # pointwise
         return x
-
-
-
-
-
 
 import torch
 import torch.nn as nn

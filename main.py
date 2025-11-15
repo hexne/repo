@@ -16,7 +16,7 @@ def train(c):
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=300,
+        epochs=1,
         batch=32,
         workers=2,
         device=0,
