@@ -1,3 +1,15 @@
+# custom_module_safe.py
+# Robust custom modules for Ultralytics YOLO integration.
+# Keeps original class/function signatures but adds robustness, dtype/device safety,
+# deterministic grid_crop fallback, and a resilient CatBackbone.coord_head implementation.
+
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=r".*grid_sampler_2d_backward_cuda does not have a deterministic implementation.*",
+    category=UserWarning
+)
+
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -25,7 +37,7 @@ class SE(nn.Module):
 
 
 # ----------------------------
-# Conv3D helper (unchanged interface)
+# Conv3D helper
 # ----------------------------
 class Conv3D(nn.Module):
     def __init__(self, c1, c2, k, s, p):
@@ -43,7 +55,7 @@ class Conv3D(nn.Module):
 
 
 # ----------------------------
-# Simple MLP (unchanged)
+# Simple MLP
 # ----------------------------
 class MLP(nn.Module):
     def __init__(self, c1, c2):
@@ -58,7 +70,7 @@ class MLP(nn.Module):
 
 
 # ----------------------------
-# BiFPN2 (two-input weighted fusion) -- add assertions and numeric stability
+# BiFPN2 (two-input weighted fusion)
 # ----------------------------
 class BiFPN2(nn.Module):
     def __init__(self, dimension=1):
@@ -70,7 +82,6 @@ class BiFPN2(nn.Module):
     def forward(self, x):
         assert isinstance(x, (list, tuple)) and len(x) == 2, f"BiFPN2 expects list/tuple of 2 tensors, got {type(x)} len={len(x)}"
         a, b = x
-        # require same spatial and channel dims
         if a.shape[1:] != b.shape[1:]:
             raise RuntimeError(f"BiFPN2 inputs must have same (C,H,W). Got {a.shape} and {b.shape}")
         w = self.w
@@ -80,7 +91,7 @@ class BiFPN2(nn.Module):
 
 
 # ----------------------------
-# BiFPN (three-input weighted fusion) -- add assertions and numeric stability
+# BiFPN (three-input weighted fusion)
 # ----------------------------
 class BiFPN(nn.Module):
     def __init__(self, dimension=1):
@@ -92,7 +103,6 @@ class BiFPN(nn.Module):
     def forward(self, x):
         assert isinstance(x, (list, tuple)) and len(x) == 3, f"BiFPN expects list/tuple of 3 tensors, got {type(x)} len={len(x)}"
         s0, s1, s2 = x
-        # require same channel/spatial shapes
         if s0.shape[1:] != s1.shape[1:] or s0.shape[1:] != s2.shape[1:]:
             raise RuntimeError(f"BiFPN inputs must share shape (C,H,W): {s0.shape}, {s1.shape}, {s2.shape}")
         w = F.relu(self.w)
@@ -102,7 +112,7 @@ class BiFPN(nn.Module):
 
 
 # ----------------------------
-# BiFPNConcat (concat along given dim) -- add simple checks
+# BiFPNConcat
 # ----------------------------
 class BiFPNConcat(nn.Module):
     def __init__(self, dimension=1):
@@ -119,7 +129,7 @@ class BiFPNConcat(nn.Module):
 
 
 # ----------------------------
-# DataSwitch (noop) kept as-is
+# DataSwitch (noop)
 # ----------------------------
 class DataSwitch(nn.Module):
     def __init__(self, c1):
@@ -130,44 +140,32 @@ class DataSwitch(nn.Module):
 
 
 # ----------------------------
-# DWT (pytorch_wavelets) wrapper: keep signature but made more robust
+# DWT wrapper (robust)
 # ----------------------------
-import torch
-import torch.nn as nn
-# from pytorch_wavelets import DWTForward  # commented to avoid runtime error if not installed
-
 class DWT(nn.Module):
     def __init__(self, c1, c2):
         super(DWT, self).__init__()
-        # Keep signature unchanged. If pytorch_wavelets is available, use it.
         try:
             from pytorch_wavelets import DWTForward
             self._use_pwavelets = True
             self.dwt = DWTForward(J=1, wave='sym4', mode='periodization')
         except Exception:
-            # fallback flag; user environment may not have pytorch_wavelets
             self._use_pwavelets = False
             self.dwt = None
-        # 1x1 conv mapping from 4*c1 -> c2
         self.conv = nn.Conv2d(c1 * 4, c2, kernel_size=1, stride=1, bias=False)
         self.eps = 1e-6
 
     def forward(self, x):
-        # x: [B, C, H, W]
         if not self._use_pwavelets:
-            # safe approximate fallback: use simple 2x2 average pooling + handcrafted bands
             Yl = F.avg_pool2d(x, kernel_size=2, stride=2)
-            # create 3 high-band approximations by simple shifts (cheap, deterministic)
             LH = x[..., ::2, 1::2] if x.size(-1) > 1 else x[..., ::2, ::2]
             HL = x[..., 1::2, ::2] if x.size(-2) > 1 else x[..., ::2, ::2]
             HH = x[..., 1::2, 1::2] if x.size(-2) > 1 and x.size(-1) > 1 else x[..., ::2, ::2]
-            # make sure all are same spatial size as Yl by adaptive pooling
             LH = F.adaptive_avg_pool2d(LH, Yl.shape[-2:])
             HL = F.adaptive_avg_pool2d(HL, Yl.shape[-2:])
             HH = F.adaptive_avg_pool2d(HH, Yl.shape[-2:])
         else:
             Yl, Yh = self.dwt(x)
-            # Yh[0] might be a tensor shaped [B, C, 3, H/2, W/2] or a list/tuple of 3 tensors
             if isinstance(Yh[0], torch.Tensor) and Yh[0].dim() == 5 and Yh[0].shape[2] == 3:
                 LH = Yh[0][:, :, 0]
                 HL = Yh[0][:, :, 1]
@@ -176,37 +174,31 @@ class DWT(nn.Module):
                 LH, HL, HH = Yh[0]
             else:
                 raise ValueError(f"DWT expected Yh[0] to contain 3 tensors, got {type(Yh[0])} with shape {getattr(Yh[0], 'shape', 'N/A')}")
-        # concat along channel dim -> [B, 4*C, H/2, W/2]
         x_cat = torch.cat([Yl, LH, HL, HH], dim=1)
         return self.conv(x_cat)
 
 
 # ----------------------------
-# PConv (Pinwheel) but robust to c2 not divisible by 4
+# PConv (robust to c2 not divisible by 4)
 # ----------------------------
 class PConv(nn.Module):
     def __init__(self, c1, c2, k, s):
         super().__init__()
         p = [(k, 0, 1, 0), (0, k, 0, 1), (0, 1, k, 0), (1, 0, 0, k)]
         self.pad = [nn.ZeroPad2d(padding=(p[g])) for g in range(4)]
-        # Use ultralytics Conv for asymmetric kernels; keep interfaces unchanged
         self.cw = Conv(c1, c2 // 4, (1, k), s=s, p=0)
         self.ch = Conv(c1, c2 // 4, (k, 1), s=s, p=0)
         self.cat = Conv(c2, c2, 2, s=1, p=0)
         self.c2 = c2
 
     def forward(self, x):
-        # produce four parts; if c2 not divisible by 4, the intermediate convs produce floor(c2/4)
-        # we will pad last part if needed before concat to reach c2 channels
         yw0 = self.cw(self.pad[0](x))
         yw1 = self.cw(self.pad[1](x))
         yh0 = self.ch(self.pad[2](x))
         yh1 = self.ch(self.pad[3](x))
         parts = [yw0, yw1, yh0, yh1]
-        # After concat, ensure the total channel count equals c2
         out = torch.cat(parts, dim=1)
         if out.shape[1] != self.c2:
-            # pad or trim channels to match expected c2
             c_out = out.shape[1]
             if c_out < self.c2:
                 pad_ch = self.c2 - c_out
@@ -257,7 +249,7 @@ class DSConvSE(nn.Module):
 
 
 # ----------------------------
-# HaarDWT (GPU-friendly) with dtype/device safety
+# HaarDWT (dtype/device safe)
 # ----------------------------
 class HaarDWT(nn.Module):
     def __init__(self):
@@ -270,20 +262,19 @@ class HaarDWT(nn.Module):
                            [0.5, -0.5]], dtype=torch.float32)
         hh = torch.tensor([[0.5, -0.5],
                            [-0.5, 0.5]], dtype=torch.float32)
-        weight = torch.stack([ll, lh, hl, hh]).unsqueeze(1)  # (4,1,2,2)
+        weight = torch.stack([ll, lh, hl, hh]).unsqueeze(1)
         self.register_buffer('weight', weight)
 
     def forward(self, x):
         B, C, H, W = x.shape
-        # move to correct device/dtype
         weight = self.weight.to(x.dtype).to(x.device)
-        weight = weight.repeat(C, 1, 1, 1)  # (4*C,1,2,2)
+        weight = weight.repeat(C, 1, 1, 1)
         out = F.conv2d(x, weight, stride=2, groups=C)
         return out
 
 
 # ----------------------------
-# DWTBackbone: keep signature, ensure channel matching commentary and robust forward
+# DWTBackbone
 # ----------------------------
 class DWTBackbone(nn.Module):
     def __init__(self, c1):
@@ -305,32 +296,57 @@ class DWTBackbone(nn.Module):
 
 
 # ----------------------------
-# grid_crop utility: clamp crop size, evenize, align_corners=False
+# grid_crop deterministic fallback
 # ----------------------------
 def grid_crop(img, pos_xy, crop_size):
     B, C, H, W = img.shape
     sz = max(int(crop_size), 8)
     if sz % 2 == 1:
         sz += 1
-    # normalized coordinates in [-1,1]
-    x_norm = (pos_xy[:, 0] / (W - 1)) * 2 - 1
-    y_norm = (pos_xy[:, 1] / (H - 1)) * 2 - 1
-    lin = torch.linspace(-1, 1, sz, device=img.device, dtype=img.dtype)
-    gy, gx = torch.meshgrid(lin, lin, indexing="ij")
-    grid = torch.stack([gx, gy], dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
-    grid[..., 0] += x_norm.view(B, 1, 1)
-    grid[..., 1] += y_norm.view(B, 1, 1)
-    # ensure values stay in [-1,1]
-    grid = torch.clamp(grid, -1.0, 1.0)
-    return F.grid_sample(img, grid, mode="bilinear", align_corners=False)
+    # normalized coords not used directly for integer-centered deterministic crop,
+    # but kept to maintain signature compatibility for other callers.
+    cx = torch.clamp(pos_xy[:, 0].round().long(), 0, W - 1)
+    cy = torch.clamp(pos_xy[:, 1].round().long(), 0, H - 1)
+
+    half = sz // 2
+    min_x = (cx - half).min().item()
+    min_y = (cy - half).min().item()
+    max_x = (cx + half - 1).max().item()
+    max_y = (cy + half - 1).max().item()
+
+    pad_left = max(0, -min_x)
+    pad_top = max(0, -min_y)
+    pad_right = max(0, max_x - (W - 1))
+    pad_bottom = max(0, max_y - (H - 1))
+
+    if pad_left or pad_top or pad_right or pad_bottom:
+        img_padded = F.pad(img, (pad_left, pad_right, pad_top, pad_bottom), mode='replicate')
+        cx = cx + pad_left
+        cy = cy + pad_top
+    else:
+        img_padded = img
+
+    _, _, Hp, Wp = img_padded.shape
+    crops = []
+    for i in range(B):
+        x_c = int(cx[i].item())
+        y_c = int(cy[i].item())
+        x1 = x_c - half
+        y1 = y_c - half
+        x1 = max(0, min(x1, Wp - sz))
+        y1 = max(0, min(y1, Hp - sz))
+        x2 = x1 + sz
+        y2 = y1 + sz
+        crop = img_padded[i:i+1, :, y1:y2, x1:x2]
+        if crop.shape[2] != crop_size or crop.shape[3] != crop_size:
+            crop = F.interpolate(crop, size=(crop_size, crop_size), mode='bilinear', align_corners=False)
+        crops.append(crop)
+    out = torch.cat(crops, dim=0)
+    return out
 
 
 # ----------------------------
-# SEBlock (already defined above as SEBlock) - reuse that; ensure only one SEBlock defined in file
-# ----------------------------
-
-# ----------------------------
-# CropBlock and CatBackbone (keep signatures unchanged) with coord_head stability and debug hooks
+# CropBlock
 # ----------------------------
 class CropBlock(nn.Module):
     def __init__(self, in_channels, out_channels=64):
@@ -350,35 +366,76 @@ class CropBlock(nn.Module):
         return x
 
 
+# ----------------------------
+# CatBackbone with robust coord_head (adaptive handling)
+# ----------------------------
 class CatBackbone(nn.Module):
+    """
+    CatBackbone:
+      - Signature unchanged: __init__(in_channels_img, in_channels_feat)
+      - coord_head outputs a channel tensor that is interpreted robustly as per-axis
+        heatmaps pooled to a fixed small grid (fallback to 4x4).
+      - Uses deterministic grid_crop above.
+    """
     def __init__(self, in_channels_img, in_channels_feat):
         super().__init__()
-        # improved coord_head but signature unchanged
+        mid = max(in_channels_feat // 4, 16)
+        self._in_channels_feat = in_channels_feat
+        # flexible coord_head: outputs arbitrary even number of channels (ideally 2*(Gx*Gy))
         self.coord_head = nn.Sequential(
-            nn.Conv2d(in_channels_feat, max(in_channels_feat // 2, 8), kernel_size=3, padding=1),
+            nn.Conv2d(in_channels_feat, mid, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(max(in_channels_feat // 2, 8), 2, 1)
+            nn.Conv2d(mid, 2 * 16, kernel_size=1)  # default to 2*16 channels but code handles other counts
         )
         self.block1 = CropBlock(in_channels_img)
         self.block2 = CropBlock(in_channels_img)
         self.block3 = CropBlock(in_channels_img)
-        # debug counters (low-frequency logging, non-intrusive)
         self._debug_counter = 0
 
     def forward(self, x):
-        image, feat = x
+        image, feat = x  # image: [B,C_img,H,W], feat: [B,C_feat,hf,wf]
         B, C_img, H, W = image.shape
-        coord = self.coord_head(feat).view(B, 2).sigmoid()
-        pos_x = coord[:, 0] * (W - 1)
-        pos_y = coord[:, 1] * (H - 1)
-        pos_xy = torch.stack([pos_x, pos_y], dim=1)
 
+        # coord heatmap prediction
+        hmap = self.coord_head(feat)  # [B, C_h, hf, wf]
+        # stabilize spatial shape by pooling to small fixed grid (4x4)
+        hmap = F.adaptive_avg_pool2d(hmap, (4, 4))  # [B, C_h, 4, 4]
+        _, C_h, Hh, Wh = hmap.shape
+        # flatten spatial
+        hmap_flat = hmap.view(B, C_h, -1)  # [B, C_h, 16]
+
+        # Expect channels to be split into two groups (axis x and axis y). If not, fallback gracefully.
+        if C_h >= 2 and C_h % 2 == 0:
+            half = C_h // 2
+            hx = hmap_flat[:, :half, :].mean(dim=1)  # [B, 16]
+            hy = hmap_flat[:, half:, :].mean(dim=1)  # [B, 16]
+        else:
+            # fallback: divide channels roughly in half
+            half = max(1, C_h // 2)
+            hx = hmap_flat[:, :half, :].mean(dim=1)
+            hy = hmap_flat[:, half:, :].mean(dim=1)
+
+        # argmax per axis over the 4x4 grid (16 cells)
+        idx_x = hx.argmax(dim=-1)  # [B]
+        idx_y = hy.argmax(dim=-1)  # [B]
+
+        grid_side = 4
+        gx_x = (idx_x % grid_side).float() / (grid_side - 1)
+        gy_x = (idx_x // grid_side).float() / (grid_side - 1)
+        gx_y = (idx_y % grid_side).float() / (grid_side - 1)
+        gy_y = (idx_y // grid_side).float() / (grid_side - 1)
+
+        # fuse estimates from both axis groups (reduce quantization)
+        pos_x = ((gx_x + gx_y) * 0.5) * (W - 1)
+        pos_y = ((gy_x + gy_y) * 0.5) * (H - 1)
+        pos_xy = torch.stack([pos_x, pos_y], dim=1)  # [B,2]
+
+        # crop sizes
         s1 = max(H // 4, 1)
         s2 = max(H // 8, 1)
         s3 = max(H // 16, 1)
 
-        # clamp and ensure even sizes with grid_crop's internal clamp
+        # deterministic crops
         patch1 = grid_crop(image, pos_xy, s1)
         patch2 = grid_crop(image, pos_xy, s2)
         patch3 = grid_crop(image, pos_xy, s3)
@@ -387,7 +444,7 @@ class CatBackbone(nn.Module):
         ret2 = self.block2(patch2)
         ret3 = self.block3(patch3)
 
-        # low-frequency debug logging to monitor pos collapse and patch norms
+        # low-frequency debug logging
         if self.training:
             self._debug_counter += 1
             if self._debug_counter % 500 == 0:
@@ -403,7 +460,7 @@ class CatBackbone(nn.Module):
 
 
 # ----------------------------
-# GetFeature: simple indexed extractor (kept signature, no extra mapping)
+# GetFeature
 # ----------------------------
 class GetFeature(nn.Module):
     def __init__(self, index: int, out_channels: int):
@@ -412,15 +469,4 @@ class GetFeature(nn.Module):
         self.out_channels = out_channels
 
     def forward(self, features):
-        ret = features[self.index]
-        return ret
-
-
-# ----------------------------
-# Utility Detect placeholder (left untouched - assume Detect exists elsewhere)
-# ----------------------------
-# Keep rest of model-head related classes (Conv, C3k2, Concat, Detect, etc.) provided by ultralytics environment
-
-# ----------------------------
-# End of modified module file
-# ----------------------------
+        return features[self.index]
