@@ -266,95 +266,107 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class SEBlock(nn.Module):
-    def __init__(self, channels, reduction=2):
-        super().__init__()
-        reduced = max(channels // reduction, 1)
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Conv2d(channels, reduced, 1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(reduced, channels, 1),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        w = self.avg_pool(x)
-        w = self.fc(w)
-        return x * w
-
-
-class CropBlock(nn.Module):
+def grid_crop(img, pos_xy, crop_size):
     """
-    SE → Depthwise Conv(stride=2) → Pointwise Conv(1x1 → out_channels)
-    """
-    def __init__(self, in_channels, out_channels=64):
-        super().__init__()
-        self.se = SEBlock(in_channels, reduction=2)
-        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=1, groups=in_channels)
-        self.pointwise = nn.Conv2d(in_channels, out_channels, kernel_size=1)
-
-    def forward(self, x):
-        x = self.se(x)
-        x = self.depthwise(x)
-        x = self.pointwise(x)
-        return x
-
-
-def crop_square_grid(img, pos_xy, crop_size):
-    """
-    使用 grid_sample 一次性裁剪 batch 内所有样本。
+    使用 grid_sample 在原图上进行可微裁剪。
     img: [B, C, H, W]
     pos_xy: [B, 2] 像素坐标 (x,y)
     crop_size: int
     return: [B, C, crop_size, crop_size]
     """
     B, C, H, W = img.shape
-    # 归一化坐标到 [-1,1]
-    cx = pos_xy[:, 0] / (W - 1) * 2 - 1
-    cy = pos_xy[:, 1] / (H - 1) * 2 - 1
+    # 归一化到 [-1,1]
+    x_norm = (pos_xy[:, 0] / (W - 1)) * 2 - 1
+    y_norm = (pos_xy[:, 1] / (H - 1)) * 2 - 1
+    pos_norm = torch.stack([x_norm, y_norm], dim=1)
 
-    # 构造采样网格
     lin = torch.linspace(-1, 1, crop_size, device=img.device)
-    grid_y, grid_x = torch.meshgrid(lin, lin, indexing="ij")
-    grid = torch.stack([grid_x, grid_y], dim=-1)  # [crop_size, crop_size, 2]
-    grid = grid.unsqueeze(0).repeat(B, 1, 1, 1)  # [B, crop_size, crop_size, 2]
+    gy, gx = torch.meshgrid(lin, lin, indexing="ij")
+    grid = torch.stack([gx, gy], dim=-1).unsqueeze(0).repeat(B, 1, 1, 1)
+    grid[..., 0] += pos_norm[:, 0].view(B, 1, 1)
+    grid[..., 1] += pos_norm[:, 1].view(B, 1, 1)
 
-    # 平移到目标点
-    grid[..., 0] += cx.view(B, 1, 1)
-    grid[..., 1] += cy.view(B, 1, 1)
+    return F.grid_sample(img, grid, mode="bilinear", align_corners=True)
 
-    # 采样
-    crops = F.grid_sample(img, grid, mode="bilinear", align_corners=True)
-    return crops
+
+class SEBlock(nn.Module):
+    """Squeeze-and-Excitation 通道注意力"""
+    def __init__(self, channels, reduction=2):
+        super().__init__()
+        reduced = max(channels // reduction, 1)
+        self.avg = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Conv2d(channels, reduced, 1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(reduced, channels, 1, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        w = self.fc(self.avg(x))
+        return x * w
+
+
+class CropBlock(nn.Module):
+    """
+    SE → Depthwise Conv(stride=2) → Pointwise Conv(1x1 → 64)
+    """
+    def __init__(self, in_channels, out_channels=64):
+        super().__init__()
+        self.se = SEBlock(in_channels, reduction=2)
+        self.dw = nn.Conv2d(in_channels, in_channels, 3, 2, 1,
+                            groups=in_channels, bias=False)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.act1 = nn.SiLU()
+        self.pw = nn.Conv2d(in_channels, out_channels, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act2 = nn.SiLU()
+
+    def forward(self, x):
+        x = self.se(x)
+        x = self.act1(self.bn1(self.dw(x)))
+        x = self.act2(self.bn2(self.pw(x)))
+        return x
 
 
 class CatBackbone(nn.Module):
-    def __init__(self, in_channels_img, in_channels_feat, out_channels=64):
+    """
+    输入:
+      image: [B, C_img, H, W]
+      feat:  [B, C_feat, h, w] (来自主干/颈部的特征)
+    输出:
+      [feat1, feat2, feat3] 三个 patch 特征
+    """
+    def __init__(self, in_channels_img, in_channels_feat):
         super().__init__()
-        self.coord_conv = nn.Sequential(
+        # 坐标预测头
+        self.coord_head = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(in_channels_feat, 2, 1)
         )
-        self.block1 = CropBlock(in_channels_img, out_channels)
-        self.block2 = CropBlock(in_channels_img, out_channels)
-        self.block3 = CropBlock(in_channels_img, out_channels)
+        # 三个裁剪特征块
+        self.block1 = CropBlock(in_channels_img)
+        self.block2 = CropBlock(in_channels_img)
+        self.block3 = CropBlock(in_channels_img)
 
     def forward(self, x):
-        image, feat = x  # image: [B, C_img, H, W], feat: [B, C_feat, h, w]
+        image, feat = x  # image: [B,C_img,H,W], feat: [B,C_feat,h,w]
         B, C_img, H, W = image.shape
 
-        # 生成坐标
-        coord = self.coord_conv(feat).view(B, 2).sigmoid()
+        # 坐标预测
+        coord = self.coord_head(feat).view(B, 2).sigmoid()
         pos_x = coord[:, 0] * (W - 1)
         pos_y = coord[:, 1] * (H - 1)
         pos_xy = torch.stack([pos_x, pos_y], dim=1)  # [B,2]
 
         # 多尺度裁剪
-        s1, s2, s3 = H // 4, H // 8, H // 16
-        patch1 = crop_square_grid(image, pos_xy, s1)
-        patch2 = crop_square_grid(image, pos_xy, s2)
-        patch3 = crop_square_grid(image, pos_xy, s3)
+        s1 = max(H // 4, 1)
+        s2 = max(H // 8, 1)
+        s3 = max(H // 16, 1)
+
+        patch1 = grid_crop(image, pos_xy, s1)
+        patch2 = grid_crop(image, pos_xy, s2)
+        patch3 = grid_crop(image, pos_xy, s3)
 
         # 特征提取
         ret1 = self.block1(patch1)
@@ -362,7 +374,6 @@ class CatBackbone(nn.Module):
         ret3 = self.block3(patch3)
 
         return [ret1, ret2, ret3]
-
 
 
 class GetFeature(nn.Module):
