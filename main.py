@@ -8,30 +8,32 @@ import torch
 import time
 from pathlib import Path
 
-
 count = 0
-def train(c):
+
+
+def train(model_name, c, batch, worker):
+    lr = 0.01 * batch / 64
     begin_time = time.time()
-    model = YOLO("custom.yaml")
+    model = YOLO(f"{model_name}.yaml")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
         epochs=300,
-        batch=32,
-        workers=4,
+        batch=batch,
+        workers=worker,
         device=0,
-        name=f"{c}",
-        patience=0,
-        amp=False
+        name=f"{model_name}_{c}",
+        lr0=lr,
+        patience=0
     )
     global count
-    count= int(time.time() - begin_time)
-    return load_best(c)
+    count = int(time.time() - begin_time)
+    return load_best(model_name, c)
 
 
-def load_best(c):
+def load_best(model_name, c):
     base_dir = Path("runs/detect")
-    name_prefix = f"{c}"
+    name_prefix = f"{model_name}_{c}"
 
     # 找到所有以 name_prefix 开头的子目录
     candidates = [d for d in base_dir.glob(f"{name_prefix}*") if d.is_dir()]
@@ -63,30 +65,69 @@ def save_result(model):
     with open(result_path, "w") as f:
         json.dump(results, f, indent=2)
 
+
 import multiprocessing as mp
 import time
 
+
 def train_worker(args):
     """在工作进程中运行训练"""
-    c = args
-    save_result(train(c))
+    model, epoch, batch_size, workers = args
+    try:
+        # 在新进程中重新导入
+
+        print(f"进程开始训练: {model} epoch{epoch}")
+        result = train(model, str(epoch), batch_size, workers)
+        save_result(result)
+        print(f"✓ 进程完成训练: {model} epoch{epoch}")
+        return True
+    except Exception as e:
+        print(f"✗ 进程训练失败 {model} epoch{epoch}: {e}")
+        return False
+
+
 if __name__ == "__main__":
-    for i in [5, 1]:
-        print(f"\n{'='*60}")
-        args = i
-        process = mp.Process(target=train_worker, args=(args,))
-        start_time = time.time()
-        process.start()
-        process.join()
-        elapsed_time = time.time() - start_time
+    models = ['test1', 'test2', 'test3', 'test4']
+    batchs = [32, 32]
+    workers = [4, 4]
 
-        # 检查进程退出状态
-        if process.exitcode == 0:
-            print(f"✅ 进程正常退出: channel{i} (耗时: {elapsed_time:.1f}秒)")
-        else:
-            print(f"❌ 进程异常退出: channel{i} (退出码: {process.exitcode})")
+    for model in models:
+        for i in [1, 5]:
+            print(f"\n{'=' * 60}")
+            print(f"创建新进程训练: {model} epoch{i}")
+            print(f"批次大小: {batchs[i - 1]}, Workers: {workers[i - 1]}")
+            print(f"{'=' * 60}")
 
-        process.close()
+            # 准备参数
+            args = (model, i, batchs[i - 1], workers[i - 1])
 
-        print(f"🧹 进程资源已清理，内存完全释放")
-        time.sleep(2)
+            # 创建进程
+            process = mp.Process(target=train_worker, args=(args,))
+
+            # 记录开始时间
+            start_time = time.time()
+
+            # 启动进程
+            process.start()
+
+            # 等待进程完成（阻塞，不会并行）
+            process.join()
+
+            # 计算耗时
+            elapsed_time = time.time() - start_time
+
+            # 检查进程退出状态
+            if process.exitcode == 0:
+                print(f"✅ 进程正常退出: {model} epoch{i} (耗时: {elapsed_time:.1f}秒)")
+            else:
+                print(f"❌ 进程异常退出: {model} epoch{i} (退出码: {process.exitcode})")
+
+            # 清理进程资源
+            process.close()
+
+            print(f"🧹 进程资源已清理，内存完全释放")
+
+            # 可选：短暂暂停，确保系统完全回收资源
+            time.sleep(2)
+
+            print(f"准备下一个训练任务...\n")
