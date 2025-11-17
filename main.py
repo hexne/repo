@@ -25,7 +25,7 @@ def train(model_name, c, batch, worker):
         name=f"{model_name}_{c}",
         lr0=lr,
         patience=0,
-        AMP=False,
+        amp=False,
     )
     global count
     count = int(time.time() - begin_time)
@@ -88,7 +88,7 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['test1', 'test2', 'test3', 'test4']
+    models = ['test4']
     batchs = [32, 32]
     workers = [4, 4]
 
