@@ -14,17 +14,18 @@ count = 0
 def train(model_name, c, batch, worker):
     lr = 0.01 * batch / 64
     begin_time = time.time()
-    model = YOLO(f"{model_name}.yaml")
+    model = YOLO(f"test2.yaml")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=300,
+        epochs=3,
         batch=batch,
         workers=worker,
         device=0,
         name=f"{model_name}_{c}",
         lr0=lr,
-        patience=0
+        patience=0,
+        AMP=False,
     )
     global count
     count = int(time.time() - begin_time)
@@ -92,14 +93,15 @@ if __name__ == "__main__":
     workers = [4, 4]
 
     for model in models:
+        index = 0
         for i in [1, 5]:
             print(f"\n{'=' * 60}")
             print(f"创建新进程训练: {model} epoch{i}")
-            print(f"批次大小: {batchs[i - 1]}, Workers: {workers[i - 1]}")
+            print(f"批次大小: {batchs[index]}, Workers: {workers[index]}")
             print(f"{'=' * 60}")
 
             # 准备参数
-            args = (model, i, batchs[i - 1], workers[i - 1])
+            args = (model, i, batchs[index], workers[index])
 
             # 创建进程
             process = mp.Process(target=train_worker, args=(args,))
@@ -131,3 +133,4 @@ if __name__ == "__main__":
             time.sleep(2)
 
             print(f"准备下一个训练任务...\n")
+        index += 1
