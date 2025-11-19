@@ -88,11 +88,13 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['test4']
+    models = ['test4', None]
     batchs = [32, 32]
     workers = [4, 4]
 
     for model in models:
+        if model is None:
+            continue
         index = 0
         for i in [1, 5]:
             print(f"\n{'=' * 60}")
