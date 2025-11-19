@@ -14,7 +14,7 @@ count = 0
 def train(model_name, c, batch, worker):
     lr = 0.01 * batch / 64
     begin_time = time.time()
-    model = YOLO(f"test2.yaml")
+    model = YOLO(f"{model_name}.yaml")
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
