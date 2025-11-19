@@ -1,3 +1,5 @@
+# 小波 + 裁剪
+
 nc: 80 # number of classes
 scales: # model compound scaling constants
   n: [0.50, 0.25, 1024]
