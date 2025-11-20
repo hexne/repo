@@ -75,32 +75,18 @@ import time
 def train_worker(args):
     """在工作进程中运行训练"""
     model, epoch, batch_size, workers = args
-    try:
-        # 在新进程中重新导入
-
-        print(f"进程开始训练: {model} epoch{epoch}")
-        result = train(model, str(epoch), batch_size, workers)
-        save_result(result)
-        print(f"✓ 进程完成训练: {model} epoch{epoch}")
-        return True
-    except Exception as e:
-        print(f"✗ 进程训练失败 {model} epoch{epoch}: {e}")
-        return False
+    result = train(model, str(epoch), batch_size, workers)
+    save_result(result)
 
 
 if __name__ == "__main__":
-    models = ['test3', 'test4']
+    models = ['test4', 'test4']
     batchs = [32, 32]
     workers = [4, 4]
 
     for model in models:
         index = 0
-        for i in [1, 5]:
-            print(f"\n{'=' * 60}")
-            print(f"创建新进程训练: {model} epoch{i}")
-            print(f"批次大小: {batchs[index]}, Workers: {workers[index]}")
-            print(f"{'=' * 60}")
-
+        for i in [5]:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 
@@ -119,18 +105,9 @@ if __name__ == "__main__":
             # 计算耗时
             elapsed_time = time.time() - start_time
 
-            # 检查进程退出状态
-            if process.exitcode == 0:
-                print(f"✅ 进程正常退出: {model} epoch{i} (耗时: {elapsed_time:.1f}秒)")
-            else:
-                print(f"❌ 进程异常退出: {model} epoch{i} (退出码: {process.exitcode})")
-
             # 清理进程资源
             process.close()
 
-            print(f"🧹 进程资源已清理，内存完全释放")
-
-            # 可选：短暂暂停，确保系统完全回收资源
             time.sleep(2)
 
             print(f"准备下一个训练任务...\n")

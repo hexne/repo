@@ -1695,7 +1695,8 @@ def parse_model(d, ch, verbose=True):
             # c2 = sum(ch[x] for x in f) # 拼接 推断通道数
             c2 = ch[f[0]] # 融合推断通道数
         elif m is BiFPN:
-            c2 = sum(ch[x] for x in f)
+            c2 = ch[f[0]] # 融合推断通道数
+            # c2 = sum(ch[x] for x in f)
         elif m in frozenset(
             {Detect, WorldDetect, YOLOEDetect, Segment, YOLOESegment, Pose, OBB, ImagePoolingAttn, v10Detect}
         ):
