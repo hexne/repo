@@ -26,7 +26,7 @@ def train(model_name, c, batch, worker):
         lr0=lr,
         patience=0,
         amp=False,
-        deterministic=False
+        # deterministic=False
     )
     global count
     count = int(time.time() - begin_time)
