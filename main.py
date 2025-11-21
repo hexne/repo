@@ -26,7 +26,7 @@ def train(model_name, c, batch, worker):
         lr0=lr,
         patience=0,
         amp=False,
-        seed=42,
+        # seed=42,
         # deterministic=False
     )
     global count
