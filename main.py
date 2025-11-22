@@ -23,6 +23,7 @@ def train(model_name, c, batch, worker):
         workers=worker,
         device=0,
         name=f"{model_name}_{c}",
+        optimizer='SGD',
         lr0=lr,
         patience=0,
         amp=False,
