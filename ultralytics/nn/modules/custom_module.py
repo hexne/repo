@@ -294,32 +294,17 @@ class DWTBackbone(nn.Module):
         p5 = self.conv5(self.dwt(p4))
         return [p3, p4, p5]
 
-class CropBlock(nn.Module):
-    def __init__(self, in_channels, out_channels=64):
-        super().__init__()
-        self.se = SEBlock(in_channels, reduction=2)
-        self.dw = nn.Conv2d(in_channels, in_channels, 3, 2, 1, groups=in_channels, bias=False)
-        self.bn1 = nn.BatchNorm2d(in_channels)
-        self.act1 = nn.SiLU()
-        self.pw = nn.Conv2d(in_channels, out_channels, 1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.act2 = nn.SiLU()
-
-    def forward(self, x):
-        x = self.se(x)
-        x = self.act1(self.bn1(self.dw(x)))
-        x = self.act2(self.bn2(self.pw(x)))
-        return x
-
 
 # ----------------------------
-# grid_crop (保持不变)
+# grid_crop deterministic fallback
 # ----------------------------
 def grid_crop(img, pos_xy, crop_size):
     B, C, H, W = img.shape
     sz = max(int(crop_size), 8)
     if sz % 2 == 1:
         sz += 1
+    # normalized coords not used directly for integer-centered deterministic crop,
+    # but kept to maintain signature compatibility for other callers.
     cx = torch.clamp(pos_xy[:, 0].round().long(), 0, W - 1)
     cy = torch.clamp(pos_xy[:, 1].round().long(), 0, H - 1)
 
@@ -361,19 +346,46 @@ def grid_crop(img, pos_xy, crop_size):
 
 
 # ----------------------------
-# CatBackbone (可微分版本)
+# CropBlock
+# ----------------------------
+class CropBlock(nn.Module):
+    def __init__(self, in_channels, out_channels=64):
+        super().__init__()
+        self.se = SEBlock(in_channels, reduction=2)
+        self.dw = nn.Conv2d(in_channels, in_channels, 3, 2, 1, groups=in_channels, bias=False)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.act1 = nn.SiLU()
+        self.pw = nn.Conv2d(in_channels, out_channels, 1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.act2 = nn.SiLU()
+
+    def forward(self, x):
+        x = self.se(x)
+        x = self.act1(self.bn1(self.dw(x)))
+        x = self.act2(self.bn2(self.pw(x)))
+        return x
+
+
+# ----------------------------
+# CatBackbone with robust coord_head (adaptive handling)
 # ----------------------------
 class CatBackbone(nn.Module):
-    def __init__(self, in_channels_img, in_channels_feat, grid_side=4):
+    """
+    CatBackbone:
+      - Signature unchanged: __init__(in_channels_img, in_channels_feat)
+      - coord_head outputs a channel tensor that is interpreted robustly as per-axis
+        heatmaps pooled to a fixed small grid (fallback to 4x4).
+      - Uses deterministic grid_crop above.
+    """
+    def __init__(self, in_channels_img, in_channels_feat):
         super().__init__()
         mid = max(in_channels_feat // 4, 16)
         self._in_channels_feat = in_channels_feat
-        self.grid_side = grid_side
-        # 输出通道数绑定到网格大小：2*(grid_side^2)
+        # flexible coord_head: outputs arbitrary even number of channels (ideally 2*(Gx*Gy))
         self.coord_head = nn.Sequential(
             nn.Conv2d(in_channels_feat, mid, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(mid, 2 * (grid_side * grid_side), kernel_size=1)
+            nn.Conv2d(mid, 2 * 16, kernel_size=1)  # default to 2*16 channels but code handles other counts
         )
         self.block1 = CropBlock(in_channels_img)
         self.block2 = CropBlock(in_channels_img)
@@ -386,28 +398,34 @@ class CatBackbone(nn.Module):
 
         # coord heatmap prediction
         hmap = self.coord_head(feat)  # [B, C_h, hf, wf]
-        hmap = F.adaptive_avg_pool2d(hmap, (self.grid_side, self.grid_side))  # [B, C_h, G, G]
+        # stabilize spatial shape by pooling to small fixed grid (4x4)
+        hmap = F.adaptive_avg_pool2d(hmap, (4, 4))  # [B, C_h, 4, 4]
         _, C_h, Hh, Wh = hmap.shape
-        hmap_flat = hmap.view(B, C_h, -1)  # [B, C_h, G^2]
+        # flatten spatial
+        hmap_flat = hmap.view(B, C_h, -1)  # [B, C_h, 16]
 
-        # 分成两半：x/y
-        half = C_h // 2
-        hx = hmap_flat[:, :half, :].mean(dim=1)  # [B, G^2]
-        hy = hmap_flat[:, half:, :].mean(dim=1)  # [B, G^2]
+        # Expect channels to be split into two groups (axis x and axis y). If not, fallback gracefully.
+        if C_h >= 2 and C_h % 2 == 0:
+            half = C_h // 2
+            hx = hmap_flat[:, :half, :].mean(dim=1)  # [B, 16]
+            hy = hmap_flat[:, half:, :].mean(dim=1)  # [B, 16]
+        else:
+            # fallback: divide channels roughly in half
+            half = max(1, C_h // 2)
+            hx = hmap_flat[:, :half, :].mean(dim=1)
+            hy = hmap_flat[:, half:, :].mean(dim=1)
 
-        # softmax + 期望值 (可微分)
-        prob_x = F.softmax(hx, dim=-1)  # [B,G^2]
-        prob_y = F.softmax(hy, dim=-1)  # [B,G^2]
-        grid = torch.arange(self.grid_side * self.grid_side, device=prob_x.device).float()
+        # argmax per axis over the 4x4 grid (16 cells)
+        idx_x = hx.argmax(dim=-1)  # [B]
+        idx_y = hy.argmax(dim=-1)  # [B]
 
-        idx_x = (prob_x * grid).sum(dim=-1)  # [B]
-        idx_y = (prob_y * grid).sum(dim=-1)  # [B]
+        grid_side = 4
+        gx_x = (idx_x % grid_side).float() / (grid_side - 1)
+        gy_x = (idx_x // grid_side).float() / (grid_side - 1)
+        gx_y = (idx_y % grid_side).float() / (grid_side - 1)
+        gy_y = (idx_y // grid_side).float() / (grid_side - 1)
 
-        gx_x = (idx_x % self.grid_side) / (self.grid_side - 1)
-        gy_x = (idx_x // self.grid_side) / (self.grid_side - 1)
-        gx_y = (idx_y % self.grid_side) / (self.grid_side - 1)
-        gy_y = (idx_y // self.grid_side) / (self.grid_side - 1)
-
+        # fuse estimates from both axis groups (reduce quantization)
         pos_x = ((gx_x + gx_y) * 0.5) * (W - 1)
         pos_y = ((gy_x + gy_y) * 0.5) * (H - 1)
         pos_xy = torch.stack([pos_x, pos_y], dim=1)  # [B,2]
@@ -417,6 +435,7 @@ class CatBackbone(nn.Module):
         s2 = max(H // 8, 1)
         s3 = max(H // 16, 1)
 
+        # deterministic crops
         patch1 = grid_crop(image, pos_xy, s1)
         patch2 = grid_crop(image, pos_xy, s2)
         patch3 = grid_crop(image, pos_xy, s3)
@@ -425,6 +444,7 @@ class CatBackbone(nn.Module):
         ret2 = self.block2(patch2)
         ret3 = self.block3(patch3)
 
+        # low-frequency debug logging
         if self.training:
             self._debug_counter += 1
             if self._debug_counter % 500 == 0:

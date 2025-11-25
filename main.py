@@ -23,11 +23,9 @@ def train(model_name, c, batch, worker):
         workers=worker,
         device=0,
         name=f"{model_name}_{c}",
-        optimizer='SGD',
         lr0=lr,
         patience=0,
         amp=False,
-        # seed=42,
         # deterministic=False
     )
     global count
@@ -82,7 +80,7 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['test4']
+    models = ['test3', 'test4']
     batchs = [32, 32]
     workers = [4, 4]
 
