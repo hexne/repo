@@ -85,7 +85,7 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['test4']
+    models = ['test1', 'test2', 'test3', 'test4']
     batchs = [32, 32]
     workers = [4, 4]
 
