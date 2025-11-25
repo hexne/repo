@@ -9,9 +9,9 @@ if __name__ == '__main__':
     from pathlib import Path
     import json
 
-    folder = r'C:\Users\hexne\Desktop\results_MLP和Conv3D'
+    folder = r'C:\Users\hexne\Desktop\results'
 
-    print("层数\tPrecision\tRecall\tmAP50\tmAP50-95\tF1\tTime(s)")
+    print("层数\tPrecision\tRecall\tF1\tmAP50\tmAP50-95\tTime(s)")
 
     for file in Path(folder).rglob('*.json'):
         data = json.load(open(file, 'r', encoding='utf-8'))
@@ -22,5 +22,5 @@ if __name__ == '__main__':
         t = data["count_time_seconds"]
         f1 = 2 * p * r / (p + r)
 
-        print(f"{file.stem}\t{p:.6f}\t{r:.6f}\t{m50:.6f}\t{m95:.6f}\t{f1:.6f}\t{t}")
+        print(f"{file.stem}\t{p:.6f}\t{r:.6f}\t{f1:.6f}\t{m50:.6f}\t{m95:.6f}\t{t}")
 
