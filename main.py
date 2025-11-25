@@ -85,13 +85,13 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['test1', 'test2', 'test3', 'test4']
-    batchs = [32, 32]
-    workers = [4, 4]
+    models = ['基线', '仅小波', '仅预测增强', 'finish']
+    batchs = [32, 32, 32, 32]
+    workers = [4, 4, 4, 4]
 
     for model in models:
         index = 0
-        for i in [5]:
+        for i in [1, 5]:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 
