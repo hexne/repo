@@ -10,6 +10,11 @@ from detectron2.evaluation import COCOEvaluator, inference_on_dataset
 from detectron2.data import build_detection_test_loader
 from detectron2 import model_zoo
 
+def calc_max_iter(batch_size, epochs):
+    iters_per_epoch = 824 // batch_size
+    max_iter = iters_per_epoch * epochs
+    return max_iter
+
 def main():
     # 修改为你的类别列表
     classes = ["nodule"]
@@ -27,9 +32,10 @@ def main():
     cfg.DATASETS.TRAIN = ("my_train",)
     cfg.DATASETS.TEST = ("my_val",)
     cfg.DATALOADER.NUM_WORKERS = 0   # ⚠️ Windows 下必须设为 0，避免多进程报错
-    cfg.SOLVER.IMS_PER_BATCH = 4
+    BATCH_SIZE=16
+    cfg.SOLVER.IMS_PER_BATCH = BATCH_SIZE
     cfg.SOLVER.BASE_LR = 0.001
-    cfg.SOLVER.MAX_ITER = 300
+    cfg.SOLVER.MAX_ITER = calc_max_iter(BATCH_SIZE, 300)
     cfg.SOLVER.STEPS = []            # 避免 STPS > MAX_ITER 的警告
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(classes)
 
