@@ -470,3 +470,143 @@ class GetFeature(nn.Module):
 
     def forward(self, features):
         return features[self.index]
+
+
+
+################## 基于改进 YOLOv8 算法的 CT 图像肺结节检测研究 论文复现 ###########################
+# custom_modules.py
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from ultralytics.nn.modules import Conv
+
+
+class PolarizedSelfAttention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+        super().__init__()
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+
+        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+    def forward(self, x):
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+class PSA(nn.Module):
+    def __init__(self, c1, c2=None):
+        super().__init__()
+        self.c1 = c1
+        c2 = c2 or c1
+        self.channels = c1
+
+        # 简化版PSA，避免复杂的维度问题
+        self.conv1 = Conv(c1, c1 // 4, 1)
+        self.conv2 = Conv(c1 // 4, c1, 1)
+        self.attention = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(c1, c1 // 8, 1),
+            nn.ReLU(),
+            nn.Conv2d(c1 // 8, c1, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        identity = x
+
+        # 通道注意力
+        attn = self.attention(x)
+        x = x * attn
+
+        # 空间注意力简化
+        x = self.conv1(x)
+        x = self.conv2(x)
+
+        return identity + x
+
+
+class DeformableAttention(nn.Module):
+    def __init__(self, dim, num_heads=8):
+        super().__init__()
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        self.scale = self.head_dim ** -0.5
+
+        # 简化的可变形注意力
+        self.offset_conv = nn.Conv2d(dim, 2 * num_heads, 3, padding=1)
+        self.value_conv = nn.Conv2d(dim, dim, 3, padding=1)
+
+        self.proj = nn.Linear(dim, dim)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+
+        # 生成偏移量
+        offsets = self.offset_conv(x)  # (B, 2*num_heads, H, W)
+        offsets = offsets.view(B, self.num_heads, 2, H, W)
+
+        # 生成value
+        v = self.value_conv(x)  # (B, C, H, W)
+        v = v.view(B, self.num_heads, self.head_dim, H, W)
+
+        # 简化的可变形采样（使用网格采样）
+        y_coords, x_coords = torch.meshgrid(torch.arange(H, device=x.device),
+                                            torch.arange(W, device=x.device), indexing='ij')
+        coords = torch.stack([x_coords, y_coords], dim=0).float()  # (2, H, W)
+        coords = coords.unsqueeze(0).unsqueeze(0)  # (1, 1, 2, H, W)
+
+        # 应用偏移
+        deformed_coords = coords + offsets * 0.1  # 小幅度偏移
+
+        # 归一化坐标到 [-1, 1]
+        deformed_coords = deformed_coords.permute(0, 1, 3, 4, 2)  # (B, num_heads, H, W, 2)
+        deformed_coords[..., 0] = 2.0 * deformed_coords[..., 0] / (W - 1) - 1.0
+        deformed_coords[..., 1] = 2.0 * deformed_coords[..., 1] / (H - 1) - 1.0
+
+        # 对每个head进行采样
+        output = []
+        for i in range(self.num_heads):
+            sampled = F.grid_sample(
+                v[:, i],  # (B, head_dim, H, W)
+                deformed_coords[:, i],  # (B, H, W, 2)
+                align_corners=True,
+                mode='bilinear'
+            )
+            output.append(sampled)
+
+        x = torch.cat(output, dim=1)  # (B, C, H, W)
+        x = x.view(B, C, H, W)
+
+        return x
+
+
+class DAT(nn.Module):
+    def __init__(self, c1, c2=None):
+        super().__init__()
+        self.c1 = c1
+        c2 = c2 or c1
+
+        # 简化的可变形注意力
+        self.deform_attn = DeformableAttention(c1)
+        self.conv = Conv(c1, c2, 1)
+
+    def forward(self, x):
+        identity = x
+        x = self.deform_attn(x)
+        x = self.conv(x)
+        return identity + x  # 残差连接

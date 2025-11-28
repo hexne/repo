@@ -1,4 +1,4 @@
-# 复现论文：DCA-YOLO：一种基于注意力机制优化的YOLOv8 肺结节检测方法
+# 复现论文：基于改进 YOLOv8 算法的 CT 图像肺结节检测研究
 
 nc: 80 # number of classes
 scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'
@@ -22,7 +22,7 @@ backbone:
   - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
   - [-1, 3, C2f, [1024, True]]
   - [-1, 1, SPPF, [1024, 5]] # 9
-
+  - [-1, 1, PSA, [1024]]  # 10
 # YOLOv8.0n head
 head:
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
@@ -34,11 +34,11 @@ head:
   - [-1, 3, C2f, [256]] # 15 (P3/8-small)
 
   - [-1, 1, Conv, [256, 3, 2]]
-  - [[-1, 12], 1, Concat, [1]] # cat head P4
+  - [[-1, 13], 1, Concat, [1]] # cat head P4
   - [-1, 3, C2f, [512]] # 18 (P4/16-medium)
-
-  - [-1, 1, Conv, [512, 3, 2]]
+  - [-1, 1, DAT, [512]]
+  - [19, 1, Conv, [512, 3, 2]]
   - [[-1, 9], 1, Concat, [1]] # cat head P5
   - [-1, 3, C2f, [1024]] # 21 (P5/32-large)
 
-  - [[15, 18, 21], 1, Detect, [nc]] # Detect(P3, P4, P5)
+  - [[16, 20, 23], 1, Detect, [nc]] # Detect(P3, P4, P5)

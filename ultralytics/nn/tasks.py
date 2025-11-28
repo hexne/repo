@@ -1618,6 +1618,8 @@ def parse_model(d, ch, verbose=True):
             DSConvSE,
             MLP,
             DWT,
+            PSA,
+            DAT
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments

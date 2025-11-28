@@ -195,6 +195,7 @@ __all__ = (
     "CatBackbone",
     "GetFeature",
     "DSConvSE",
-    "D"
+    "PSA",
+    "DAT",
 
 )
