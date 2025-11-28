@@ -34,8 +34,8 @@ def main():
     cfg.DATALOADER.NUM_WORKERS = 0   # ⚠️ Windows 下必须设为 0，避免多进程报错
     BATCH_SIZE=16
     cfg.SOLVER.IMS_PER_BATCH = BATCH_SIZE
-    cfg.SOLVER.BASE_LR = 0.001
-    cfg.SOLVER.MAX_ITER = calc_max_iter(BATCH_SIZE, 300)
+    cfg.SOLVER.BASE_LR = 0.01
+    cfg.SOLVER.MAX_ITER = calc_max_iter(BATCH_SIZE, 100)
     cfg.SOLVER.STEPS = []            # 避免 STPS > MAX_ITER 的警告
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(classes)
 
