@@ -9,6 +9,7 @@ from detectron2.utils.visualizer import Visualizer
 from detectron2.evaluation import COCOEvaluator, inference_on_dataset
 from detectron2.data import build_detection_test_loader
 from detectron2 import model_zoo
+from contextlib import redirect_stdout
 
 def calc_max_iter(batch_size, epochs):
     iters_per_epoch = 824 // batch_size
@@ -53,10 +54,19 @@ def main():
     cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
     evaluator = COCOEvaluator("my_test", cfg, False, output_dir="./eval_results/")
     val_loader = build_detection_test_loader(cfg, "my_test")
-    metrics = inference_on_dataset(trainer.model, val_loader, evaluator)
 
-    print("📊 测试集评估结果:")
-    print(metrics)   # 包含 precision, recall, mAP@0.5, mAP@0.95 等指标
+    # 重定向输出到文件
+    with open("evaluation_results.txt", "w", encoding="utf-8") as f:
+        with redirect_stdout(f):
+            print("📊 测试集评估结果:")
+            print("=" * 60)
+            metrics = inference_on_dataset(trainer.model, val_loader, evaluator)
+            print("\n" + "=" * 60)
+            print("原始 metrics 数据:")
+            print(metrics)
+
+    print("📊 测试集评估结果已保存到 evaluation_results.txt")
+    print(metrics)
 
     # -------------------
     # ✅ 推理 + 可视化
