@@ -33,7 +33,7 @@ def main():
     cfg.DATASETS.TRAIN = ("my_train",)
     cfg.DATASETS.TEST = ("my_val",)
     cfg.DATALOADER.NUM_WORKERS = 0   # ⚠️ Windows 下必须设为 0，避免多进程报错
-    BATCH_SIZE=16
+    BATCH_SIZE=8
     cfg.SOLVER.IMS_PER_BATCH = BATCH_SIZE
     cfg.SOLVER.BASE_LR = 0.01
     cfg.SOLVER.MAX_ITER = calc_max_iter(BATCH_SIZE, 100)

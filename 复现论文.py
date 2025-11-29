@@ -15,7 +15,7 @@ def train(model_name, c, batch, worker):
     begin_time = time.time()
     model = YOLO(f"{model_name}.yaml")
     model.train(
-        data=f"dataset/1pm/dataset.yaml",
+        data=f"dataset/1p/dataset.yaml",
         imgsz=512,
         epochs=100,
         batch=16,
