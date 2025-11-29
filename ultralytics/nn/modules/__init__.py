@@ -197,5 +197,6 @@ __all__ = (
     "DSConvSE",
     "PSA",
     "DAT",
-
+    "CA",
+    "SPDConv"
 )

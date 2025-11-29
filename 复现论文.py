@@ -17,11 +17,11 @@ def train(model_name, c, batch, worker):
     model.train(
         data=f"dataset/1p/dataset.yaml",
         imgsz=512,
-        epochs=100,
-        batch=16,
+        epochs=200,
+        batch=32,
         workers=worker,
-        optimizer='SGD',
-        lr0=0.01,
+        optimizer='Adam',
+        lr0=0.0001,
         iou=0.5,
         device=0,
         name=f"{model_name}_{c}",
@@ -81,7 +81,7 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['复现论文1']
+    models = ['复现论文2']
     batchs = [32, 32, 32, 32]
     workers = [4, 4, 4, 4]
 

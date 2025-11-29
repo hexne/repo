@@ -610,3 +610,79 @@ class DAT(nn.Module):
         x = self.deform_attn(x)
         x = self.conv(x)
         return identity + x  # 残差连接
+
+#=====================================
+# -----------------------------
+# 2. Coordinate Attention (CA)
+# -----------------------------
+class CA(nn.Module):
+    def __init__(self, in_channels, reduction=32):
+        super(CA, self).__init__()
+        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
+        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+
+        mip = max(8, in_channels // reduction)
+        self.conv1 = nn.Conv2d(in_channels, mip, kernel_size=1)
+        self.bn1 = nn.BatchNorm2d(mip)
+        self.act = nn.ReLU(inplace=True)
+
+        self.conv_h = nn.Conv2d(mip, in_channels, kernel_size=1)
+        self.conv_w = nn.Conv2d(mip, in_channels, kernel_size=1)
+
+    def forward(self, x):
+        identity = x
+        N, C, H, W = x.size()
+
+        # H方向特征 (N, C, H, 1) → (N, C, 1, H)
+        x_h = self.pool_h(x).permute(0, 1, 3, 2)
+        # W方向特征 (N, C, 1, W)
+        x_w = self.pool_w(x)
+
+        # 拼接在最后一个维度
+        y = torch.cat([x_h, x_w], dim=3)  # (N, C, 1, H+W)
+        y = self.act(self.bn1(self.conv1(y)))
+
+        # 按照 H 和 W 拆分
+        x_h, x_w = torch.split(y, [H, W], dim=3)
+        x_h = x_h.permute(0, 1, 3, 2)  # (N, C, H, 1)
+        x_w = x_w                      # (N, C, 1, W)
+
+        a_h = self.conv_h(x_h).sigmoid()
+        a_w = self.conv_w(x_w).sigmoid()
+
+        return identity * a_h * a_w
+
+
+
+# -----------------------------
+# ACON-C 激活函数
+# -----------------------------
+class ACONC(nn.Module):
+    def __init__(self, p1=1.0, p2=0.0, beta=1.0):
+        super(ACONC, self).__init__()
+        self.p1 = nn.Parameter(torch.tensor(p1))
+        self.p2 = nn.Parameter(torch.tensor(p2))
+        self.beta = nn.Parameter(torch.tensor(beta))
+
+    def forward(self, x):
+        return (self.p1 - self.p2) * x * torch.sigmoid(self.beta * (self.p1 - self.p2) * x) + self.p2 * x
+
+# -----------------------------
+# SPDConv + ACONC
+# -----------------------------
+class SPDConv(nn.Module):
+    def __init__(self, c1, c2, k=3, s=1, p=None):
+        super().__init__()
+        self.unshuffle = nn.PixelUnshuffle(2)  # 空间下采样，通道扩展4倍
+        if p is None:
+            p = (k - 1) // 2
+        self.conv = nn.Conv2d(c1 * 4, c2, kernel_size=k, stride=s, padding=p, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = ACONC()
+
+    def forward(self, x):
+        assert x.shape[2] % 2 == 0 and x.shape[3] % 2 == 0, "输入尺寸必须为偶数"
+        x = self.unshuffle(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        return self.act(x)
