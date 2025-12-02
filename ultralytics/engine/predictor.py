@@ -44,6 +44,7 @@ from typing import Any
 import cv2
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 
 from ultralytics.cfg import get_cfg, get_save_dir
 from ultralytics.data import load_inference_source
@@ -264,7 +265,7 @@ class BasePredictor:
             batch=self.args.batch,
             vid_stride=self.args.vid_stride,
             buffer=self.args.stream_buffer,
-            channels=getattr(self.model, "ch", 3),
+            channels=getattr(self.model, "ch", 5),
         )
         self.source_type = self.dataset.source_type
         long_sequence = (
@@ -443,12 +444,19 @@ class BasePredictor:
 
         # Add predictions to image
         if self.args.save or self.args.show:
+            gray = im[i, 2, :, :].cpu().numpy()  # (H, W)，单通道
+            if gray.max() <= 1.0:
+                gray = (gray * 255).astype(np.uint8)
+            else:
+                gray = gray.astype(np.uint8)
+            gray3 = np.repeat(gray[..., None], 3, axis=2)  # (H, W, 3)，复制成 RGB
             self.plotted_img = result.plot(
                 line_width=self.args.line_width,
                 boxes=self.args.show_boxes,
                 conf=self.args.show_conf,
                 labels=self.args.show_labels,
-                im_gpu=None if self.args.retina_masks else im[i],
+                # im_gpu=None if self.args.retina_masks else im[i],
+                img=gray3
             )
 
         # Save results
