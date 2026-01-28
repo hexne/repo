@@ -13,9 +13,7 @@ from typing import Any
 
 import cv2
 import numpy as np
-from tifffile import tifffile
 from torch.utils.data import Dataset
-from skimage.transform import resize
 
 from ultralytics.data.utils import FORMATS_HELP_MSG, HELP_URL, IMG_FORMATS, check_file_speeds
 from ultralytics.utils import DEFAULT_CFG, LOCAL_RANK, LOGGER, NUM_THREADS, TQDM
@@ -23,11 +21,10 @@ from ultralytics.utils.patches import imread
 
 
 class BaseDataset(Dataset):
-    """
-    Base dataset class for loading and processing image data.
+    """Base dataset class for loading and processing image data.
 
-    This class provides core functionality for loading images, caching, and preparing data for training and inference
-    in object detection tasks.
+    This class provides core functionality for loading images, caching, and preparing data for training and inference in
+    object detection tasks.
 
     Attributes:
         img_path (str): Path to the folder containing images.
@@ -36,7 +33,8 @@ class BaseDataset(Dataset):
         single_cls (bool): Whether to treat all objects as a single class.
         prefix (str): Prefix to print in log messages.
         fraction (float): Fraction of dataset to utilize.
-        channels (int): Number of channels in the images (1 for grayscale, 3 for RGB).
+        channels (int): Number of channels in the images (1 for grayscale, 3 for color). Color images loaded with OpenCV
+            are in BGR channel order.
         cv2_flag (int): OpenCV flag for reading images.
         im_files (list[str]): List of image file paths.
         labels (list[dict]): List of label data dictionaries.
@@ -88,8 +86,7 @@ class BaseDataset(Dataset):
         fraction: float = 1.0,
         channels: int = 3,
     ):
-        """
-        Initialize BaseDataset with given configuration and options.
+        """Initialize BaseDataset with given configuration and options.
 
         Args:
             img_path (str | list[str]): Path to the folder containing images or list of image paths.
@@ -105,7 +102,8 @@ class BaseDataset(Dataset):
             single_cls (bool): If True, single class training is used.
             classes (list[int], optional): List of included classes.
             fraction (float): Fraction of dataset to utilize.
-            channels (int): Number of channels in the images (1 for grayscale, 3 for RGB).
+            channels (int): Number of channels in the images (1 for grayscale, 3 for color). Color images loaded with
+                OpenCV are in BGR channel order.
         """
         super().__init__()
         self.img_path = img_path
@@ -150,8 +148,7 @@ class BaseDataset(Dataset):
         self.transforms = self.build_transforms(hyp=hyp)
 
     def get_img_files(self, img_path: str | list[str]) -> list[str]:
-        """
-        Read image files from the specified path.
+        """Read image files from the specified path.
 
         Args:
             img_path (str | list[str]): Path or list of paths to image directories or files.
@@ -188,8 +185,7 @@ class BaseDataset(Dataset):
         return im_files
 
     def update_labels(self, include_class: list[int] | None) -> None:
-        """
-        Update labels to include only specified classes.
+        """Update labels to include only specified classes.
 
         Args:
             include_class (list[int], optional): List of classes to include. If None, all classes are included.
@@ -211,22 +207,32 @@ class BaseDataset(Dataset):
             if self.single_cls:
                 self.labels[i]["cls"][:, 0] = 0
 
-    def load_image(self, i, rect_mode=True):
-        """Loads 1 image from dataset index 'i', returns (im, resized hw)."""
+    def load_image(self, i: int, rect_mode: bool = True) -> tuple[np.ndarray, tuple[int, int], tuple[int, int]]:
+        """Load an image from dataset index 'i'.
+
+        Args:
+            i (int): Index of the image to load.
+            rect_mode (bool): Whether to use rectangular resizing.
+
+        Returns:
+            im (np.ndarray): Loaded image as a NumPy array.
+            hw_original (tuple[int, int]): Original image dimensions in (height, width) format.
+            hw_resized (tuple[int, int]): Resized image dimensions in (height, width) format.
+
+        Raises:
+            FileNotFoundError: If the image file is not found.
+        """
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i]
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy
                 try:
                     im = np.load(fn)
                 except Exception as e:
-                    LOGGER.warning(f"{self.prefix}WARNING ⚠️ Removing corrupt *.npy image file {fn} due to: {e}")
+                    LOGGER.warning(f"{self.prefix}Removing corrupt *.npy image file {fn} due to: {e}")
                     Path(fn).unlink(missing_ok=True)
-                    im = cv2.imread(f)  # BGR
+                    im = imread(f, flags=self.cv2_flag)  # BGR
             else:  # read image
-                if f.endswith('.tiff') or f.endswith('.TIFF'):
-                    im = tifffile.imread(f)
-                else:
-                    im = cv2.imread(f)  # BGR
+                im = imread(f, flags=self.cv2_flag)  # BGR
             if im is None:
                 raise FileNotFoundError(f"Image Not Found {f}")
 
@@ -235,18 +241,20 @@ class BaseDataset(Dataset):
                 r = self.imgsz / max(h0, w0)  # ratio
                 if r != 1:  # if sizes are not equal
                     w, h = (min(math.ceil(w0 * r), self.imgsz), min(math.ceil(h0 * r), self.imgsz))
-                    # im = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
-                    im = resize(im, (w, h), mode='constant', anti_aliasing=True)
+                    im = cv2.resize(im, (w, h), interpolation=cv2.INTER_LINEAR)
             elif not (h0 == w0 == self.imgsz):  # resize by stretching image to square imgsz
                 im = cv2.resize(im, (self.imgsz, self.imgsz), interpolation=cv2.INTER_LINEAR)
+            if im.ndim == 2:
+                im = im[..., None]
 
             # Add to buffer if training with augmentations
             if self.augment:
                 self.ims[i], self.im_hw0[i], self.im_hw[i] = im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
                 self.buffer.append(i)
-                if len(self.buffer) >= self.max_buffer_length:
+                if 1 < len(self.buffer) >= self.max_buffer_length:  # prevent empty buffer
                     j = self.buffer.pop(0)
-                    self.ims[j], self.im_hw0[j], self.im_hw[j] = None, None, None
+                    if self.cache != "ram":
+                        self.ims[j], self.im_hw0[j], self.im_hw[j] = None, None, None
 
             return im, (h0, w0), im.shape[:2]
 
@@ -275,8 +283,7 @@ class BaseDataset(Dataset):
             np.save(f.as_posix(), imread(self.im_files[i]), allow_pickle=False)
 
     def check_cache_disk(self, safety_margin: float = 0.5) -> bool:
-        """
-        Check if there's enough disk space for caching images.
+        """Check if there's enough disk space for caching images.
 
         Args:
             safety_margin (float): Safety margin factor for disk space calculation.
@@ -296,10 +303,10 @@ class BaseDataset(Dataset):
             b += im.nbytes
             if not os.access(Path(im_file).parent, os.W_OK):
                 self.cache = None
-                LOGGER.warning(f"{self.prefix}Skipping caching images to disk, directory not writeable")
+                LOGGER.warning(f"{self.prefix}Skipping caching images to disk, directory not writable")
                 return False
         disk_required = b * self.ni / n * (1 + safety_margin)  # bytes required to cache dataset to disk
-        total, used, free = shutil.disk_usage(Path(self.im_files[0]).parent)
+        total, _used, free = shutil.disk_usage(Path(self.im_files[0]).parent)
         if disk_required > free:
             self.cache = None
             LOGGER.warning(
@@ -311,8 +318,7 @@ class BaseDataset(Dataset):
         return True
 
     def check_cache_ram(self, safety_margin: float = 0.5) -> bool:
-        """
-        Check if there's enough RAM for caching images.
+        """Check if there's enough RAM for caching images.
 
         Args:
             safety_margin (float): Safety margin factor for RAM calculation.
@@ -370,8 +376,7 @@ class BaseDataset(Dataset):
         return self.transforms(self.get_image_and_label(index))
 
     def get_image_and_label(self, index: int) -> dict[str, Any]:
-        """
-        Get and return label information from the dataset.
+        """Get and return label information from the dataset.
 
         Args:
             index (int): Index of the image to retrieve.
@@ -399,8 +404,7 @@ class BaseDataset(Dataset):
         return label
 
     def build_transforms(self, hyp: dict[str, Any] | None = None):
-        """
-        Users can customize augmentations here.
+        """Users can customize augmentations here.
 
         Examples:
             >>> if self.augment:
@@ -413,8 +417,7 @@ class BaseDataset(Dataset):
         raise NotImplementedError
 
     def get_labels(self) -> list[dict[str, Any]]:
-        """
-        Users can customize their own format here.
+        """Users can customize their own format here.
 
         Examples:
             Ensure output is a dictionary with the following keys:
