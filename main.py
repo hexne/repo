@@ -20,7 +20,7 @@ def train(model_name, c, batch, worker):
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=3,
+        epochs=300,
         batch=batch,
         workers=worker,
         device=0,
@@ -88,12 +88,12 @@ def train_worker(args):
 
 if __name__ == "__main__":
     models = ['yolo26n']
-    batchs = [8, 16, 32, 32]
-    workers = [4, 8, 4, 4]
+    batchs = [16]
+    workers = [8]
 
     for model in models:
         index = 0
-        for i in ['5_back']:
+        for i in ['1']:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 
