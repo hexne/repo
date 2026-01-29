@@ -1055,28 +1055,18 @@ class RandomPerspective:
         self.border = border  # mosaic border
         self.pre_transform = pre_transform
 
-    def affine_transform(self, img: np.ndarray, border: tuple[int, int]) -> tuple[np.ndarray, np.ndarray, float]:
-        """Apply a sequence of affine transformations centered around the image center.
-
-        This function performs a series of geometric transformations on the input image, including translation,
-        perspective change, rotation, scaling, and shearing. The transformations are applied in a specific order to
-        maintain consistency.
-
-        Args:
-            img (np.ndarray): Input image to be transformed.
-            border (tuple[int, int]): Border dimensions for the transformed image.
-
-        Returns:
-            img (np.ndarray): Transformed image.
-            M (np.ndarray): 3x3 transformation matrix.
-            s (float): Scale factor applied during the transformation.
-
-        Examples:
-            >>> import numpy as np
-            >>> img = np.random.rand(100, 100, 3)
-            >>> border = (10, 10)
-            >>> transformed_img, matrix, scale = affine_transform(img, border)
+    def affine_transform(self, img, border):
         """
+        Applies a sequence of affine transformations centered around the image center.
+        Args:
+            img (ndarray): Input image.
+            border (tuple): Border dimensions.
+        Returns:
+            img (ndarray): Transformed image.
+            M (ndarray): Transformation matrix.
+            s (float): Scale factor.
+        """
+
         # Center
         C = np.eye(3, dtype=np.float32)
 
@@ -1113,9 +1103,11 @@ class RandomPerspective:
             if self.perspective:
                 img = cv2.warpPerspective(img, M, dsize=self.size, borderValue=(114, 114, 114))
             else:  # affine
-                img = cv2.warpAffine(img, M[:2], dsize=self.size, borderValue=(114, 114, 114))
-            if img.ndim == 2:
-                img = img[..., None]
+                # img = cv2.warpAffine(img, M[:2], dsize=self.size, borderValue=(114, 114, 114))
+                channel_list = cv2.split(img)
+                transformed_channels = [cv2.warpAffine(channel, M[:2], dsize=self.size, borderValue=(114, 114, 114)) for
+                                        channel in channel_list]
+                img = cv2.merge(transformed_channels)
         return img, M, s
 
     def apply_bboxes(self, bboxes: np.ndarray, M: np.ndarray) -> np.ndarray:
@@ -1565,28 +1557,8 @@ class LetterBox:
         self.padding_value = padding_value
         self.interpolation = interpolation
 
-    def __call__(self, labels: dict[str, Any] | None = None, image: np.ndarray = None) -> dict[str, Any] | np.ndarray:
-        """Resize and pad an image for object detection, instance segmentation, or pose estimation tasks.
-
-        This method applies letterboxing to the input image, which involves resizing the image while maintaining its
-        aspect ratio and adding padding to fit the new shape. It also updates any associated labels accordingly.
-
-        Args:
-            labels (dict[str, Any] | None): A dictionary containing image data and associated labels, or empty dict if
-                None.
-            image (np.ndarray | None): The input image as a numpy array. If None, the image is taken from 'labels'.
-
-        Returns:
-            (dict[str, Any] | np.ndarray): If 'labels' is provided, returns an updated dictionary with the resized and
-                padded image, updated labels, and additional metadata. If 'labels' is empty, returns the resized and
-                padded image only.
-
-        Examples:
-            >>> letterbox = LetterBox(new_shape=(640, 640))
-            >>> result = letterbox(labels={"img": np.zeros((480, 640, 3)), "instances": Instances(...)})
-            >>> resized_img = result["img"]
-            >>> updated_instances = result["instances"]
-        """
+    def __call__(self, labels=None, image=None):
+        """Return updated labels and image with added border."""
         if labels is None:
             labels = {}
         img = labels.get("img") if image is None else image
@@ -1602,7 +1574,7 @@ class LetterBox:
 
         # Compute padding
         ratio = r, r  # width, height ratios
-        new_unpad = round(shape[1] * r), round(shape[0] * r)
+        new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
         dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
         if self.auto:  # minimum rectangle
             dw, dh = np.mod(dw, self.stride), np.mod(dh, self.stride)  # wh padding
@@ -1616,27 +1588,24 @@ class LetterBox:
             dh /= 2
 
         if shape[::-1] != new_unpad:  # resize
-            img = cv2.resize(img, new_unpad, interpolation=self.interpolation)
-            if img.ndim == 2:
-                img = img[..., None]
+            img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+        top, bottom = int(round(dh - 0.1)) if self.center else 0, int(round(dh + 0.1))
+        left, right = int(round(dw - 0.1)) if self.center else 0, int(round(dw + 0.1))
 
-        top, bottom = round(dh - 0.1) if self.center else 0, round(dh + 0.1)
-        left, right = round(dw - 0.1) if self.center else 0, round(dw + 0.1)
-        h, w, c = img.shape
-        if c == 3:
+        if img.shape[2] > 3:
+            border_img = np.ones((img.shape[0] + top + bottom, img.shape[1] + left + right, img.shape[2]),
+                                 dtype=img.dtype) * 114
+            border_img[top:img.shape[0] + top, left:img.shape[1] + left] = img
+            img = border_img
+        else:
             img = cv2.copyMakeBorder(
-                img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(self.padding_value,) * 3
-            )
-        else:  # multispectral
-            pad_img = np.full((h + top + bottom, w + left + right, c), fill_value=self.padding_value, dtype=img.dtype)
-            pad_img[top : top + h, left : left + w] = img
-            img = pad_img
-
+                img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114)
+            )  # add border
         if labels.get("ratio_pad"):
             labels["ratio_pad"] = (labels["ratio_pad"], (left, top))  # for evaluation
 
         if len(labels):
-            labels = self._update_labels(labels, ratio, left, top)
+            labels = self._update_labels(labels, ratio, dw, dh)
             labels["img"] = img
             labels["resized_shape"] = new_shape
             return labels

@@ -201,13 +201,21 @@ class Annotator:
         self.pil = pil or non_ascii or input_is_pil
         self.lw = line_width or max(round(sum(im.size if input_is_pil else im.shape) / 2 * 0.003), 2)
         if not input_is_pil:
-            if im.shape[2] == 1:  # handle grayscale
+            if im.ndim == 2 or im.shape[2] == 1:  # handle grayscale
                 im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)
             elif im.shape[2] == 2:  # handle 2-channel images
                 im = np.ascontiguousarray(np.dstack((im, np.zeros_like(im[..., :1]))))
             elif im.shape[2] > 3:  # multispectral
                 im = np.ascontiguousarray(im[..., :3])
         if self.pil:  # use PIL
+
+            c = im.shape[2]
+            if c % 2 == 0:
+                im = im[:, :, c // 2 - 1]  # 偶数通道，取中间偏前一层
+            else:
+                im = im[:, :, c // 2]  # 奇数通道，取正中间那层
+            im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR)  # 转为3通道BGR用于可视化
+
             self.im = im if input_is_pil else Image.fromarray(im)  # stay in BGR since color palette is in BGR
             if self.im.mode not in {"RGB", "RGBA"}:  # multispectral
                 self.im = self.im.convert("RGB")
@@ -758,7 +766,7 @@ def plot_images(
     if scale < 1:
         h = math.ceil(scale * h)
         w = math.ceil(scale * w)
-        mosaic = cv2.resize(mosaic, tuple(int(x * ns) for x in (w, h)))
+        mosaic = np.full((int(ns * h), int(ns * w), images[0].shape[0]), 255, dtype=np.uint8)  # init
 
     # Annotate
     fs = int((h + w) * ns * 0.01)  # font size

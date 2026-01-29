@@ -1,3 +1,5 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import shutil
 
 from ultralytics import YOLO
@@ -18,17 +20,17 @@ def train(model_name, c, batch, worker):
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=300,
+        epochs=3,
         batch=batch,
         workers=worker,
         device=0,
         name=f"{model_name}_{c}",
-        optimizer="SGD",  # 优化器
-        lrf=0.0003,  # 最终学习率 (cosine)
-        weight_decay=0.001,  # 正则化
-        momentum=0.9,  # 动量
-        cos_lr=True,  # 学习率调度器
-        lr0=lr,
+        # optimizer="SGD",  # 优化器
+        # lrf=0.0003,  # 最终学习率 (cosine)
+        # weight_decay=0.001,  # 正则化
+        # momentum=0.9,  # 动量
+        # cos_lr=True,  # 学习率调度器
+        # lr0=lr,
         patience=0,
         amp=False,
         # deterministic=False
@@ -39,7 +41,7 @@ def train(model_name, c, batch, worker):
 
 
 def load_best(model_name, c):
-    base_dir = Path("runs/detect")
+    base_dir = Path("detect")
     name_prefix = f"{model_name}_{c}"
 
     # 找到所有以 name_prefix 开头的子目录
@@ -85,13 +87,13 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['基线', '仅小波', '仅预测增强', 'finish']
-    batchs = [32, 32, 32, 32]
-    workers = [4, 4, 4, 4]
+    models = ['yolo26n']
+    batchs = [8, 16, 32, 32]
+    workers = [4, 8, 4, 4]
 
     for model in models:
         index = 0
-        for i in [1, 5]:
+        for i in ['5_back']:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 
