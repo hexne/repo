@@ -9,7 +9,7 @@ if __name__ == '__main__':
     from pathlib import Path
     import json
 
-    folder = r'C:\Users\hexne\Desktop\results'
+    folder = r'results'
 
     print("层数\tPrecision\tRecall\tF1\tmAP50\tmAP50-95\tTime(s)")
 

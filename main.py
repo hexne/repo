@@ -41,7 +41,7 @@ def train(model_name, c, batch, worker):
 
 
 def load_best(model_name, c):
-    base_dir = Path("detect")
+    base_dir = Path("runs/detect")
     name_prefix = f"{model_name}_{c}"
 
     # 找到所有以 name_prefix 开头的子目录
@@ -93,7 +93,7 @@ if __name__ == "__main__":
 
     for model in models:
         index = 0
-        for i in ['1']:
+        for i in ['3p', '3', '5']:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 
