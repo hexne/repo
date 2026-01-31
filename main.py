@@ -87,13 +87,13 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['yolo26n']
+    models = ['finish']
     batchs = [16]
     workers = [8]
 
     for model in models:
         index = 0
-        for i in ['3p', '3', '5']:
+        for i in ['5']:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 

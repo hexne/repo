@@ -9,7 +9,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-
+from ultralytics.nn.modules.custom_module import *
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
     AIFI,
@@ -1600,6 +1600,19 @@ def parse_model(d, ch, verbose=True):
             SCDown,
             C2fCIB,
             A2C2f,
+
+            # @TODO 添加模块
+            SE,
+            Conv3D,
+            PConv,
+            DSConvSE,
+            MLP,
+            DWT,
+            PSA,
+            DAT,
+            CA,
+            SPDConv
+
         }
     )
     repeat_modules = frozenset(  # modules with 'repeat' arguments
@@ -1670,6 +1683,15 @@ def parse_model(d, ch, verbose=True):
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
+        # @TODO 添加拼接方式
+        elif m is BiFPNConcat:
+            c2 = sum(ch[x] for x in f)
+        elif m is BiFPN2:
+            # c2 = sum(ch[x] for x in f) # 拼接 推断通道数
+            c2 = ch[f[0]] # 融合推断通道数
+        elif m is BiFPN:
+            c2 = ch[f[0]] # 融合推断通道数
+            # c2 = sum(ch[x] for x in f)
         elif m in frozenset(
             {
                 Detect,
@@ -1706,10 +1728,32 @@ def parse_model(d, ch, verbose=True):
             c2 = args[0]
             c1 = ch[f]
             args = [*args[1:]]
+        elif m is DataSwitch:
+            c1 = c2 = ch[f]
+            args = [*args[1:]]
+            m_ = m(args)
+        # ch[f] 是当前层的输入通道数
+        elif m is DWTBackbone:
+            c1 = ch[f]
+            m_ = m(c1)
+        elif m is CatBackbone:
+            image_c  = ch[f[0]]
+            feat_c = ch[f[1]]
+            c1 = ch[f[1]]
+            m_ = m(image_c, feat_c)
+            args = [*args[1:]]
+        elif m is GetFeature:
+            m_ = m(*args)
+            c2 = m_.out_channels
+
         else:
             c2 = ch[f]
+        if (m is not DataSwitch
+                and m is not DWTBackbone
+                and m is not CatBackbone
+                and m is not GetFeature):
 
-        m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+            m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace("__main__.", "")  # module type
         m_.np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type = i, f, t  # attach index, 'from' index, type

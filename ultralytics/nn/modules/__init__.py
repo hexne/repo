@@ -105,7 +105,7 @@ from .transformer import (
     TransformerEncoderLayer,
     TransformerLayer,
 )
-
+from .custom_module import *
 __all__ = (
     "AIFI",
     "C1",
@@ -187,4 +187,24 @@ __all__ = (
     "YOLOESegment",
     "YOLOESegment26",
     "v10Detect",
+
+    # @TODO, 添加模块
+    "SE",
+    "Conv3D",
+    "PConv",
+    "MLP",
+    "BiFPN2",
+    "BiFPNConcat",
+    "DataSwitch",
+    "BiFPN",
+    "DWT",
+    "DWTBackbone",
+    "CatBackbone",
+    "GetFeature",
+    "DSConvSE",
+    "PSA",
+    "DAT",
+    "CA",
+    "SPDConv"
+
 )
