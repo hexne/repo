@@ -20,7 +20,7 @@ def train(model_name, c, batch, worker):
     model.train(
         data=f"dataset/{c}/dataset.yaml",
         imgsz=512,
-        epochs=300,
+        epochs=3,
         batch=batch,
         workers=worker,
         device=0,
@@ -41,7 +41,7 @@ def train(model_name, c, batch, worker):
 
 
 def load_best(model_name, c):
-    base_dir = Path("runs/detect")
+    base_dir = Path("detect")
     name_prefix = f"{model_name}_{c}"
 
     # 找到所有以 name_prefix 开头的子目录
@@ -87,13 +87,13 @@ def train_worker(args):
 
 
 if __name__ == "__main__":
-    models = ['finish']
-    batchs = [16]
-    workers = [8]
+    models = ['WTB', 'PEM', 'finish']
+    batchs = [8]
+    workers = [4]
 
     for model in models:
         index = 0
-        for i in ['5']:
+        for i in [1, 5]:
             # 准备参数
             args = (model, i, batchs[index], workers[index])
 

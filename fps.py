@@ -2,41 +2,44 @@ import time
 import torch
 from ultralytics import YOLO
 
-def get_fps(path, img_size=640, num_runs=1000):
+def get_fps(path, img_size=512, num_runs=1000, ch=1, warmup=20):
     """
-    测试 YOLO 模型的 FPS (Frames Per Second)
-
-    Args:
-        path (str): 模型文件路径，例如 'runs/train/exp/weights/best.pt'
-        img_size (int): 输入图像尺寸，默认 640
-        num_runs (int): 测试次数，默认 1000
-
-    Returns:
-        float: 模型推理 FPS
+    Benchmark YOLO model FPS with synthetic input.
     """
-    # 加载模型
     model = YOLO(path)
+    dummy_input = torch.randn(1, ch, img_size, img_size).cuda()
 
-    # 构造虚拟输入
-    dummy_input = torch.randn(1, 10, img_size, img_size).cuda()
-
-    # warm-up，避免第一次运行的初始化开销
-    for _ in range(50):
+    # Warm-up
+    for _ in range(warmup):
         _ = model(dummy_input)
 
-    # 正式计时
     torch.cuda.synchronize()
     start = time.perf_counter()
 
     for _ in range(num_runs):
         _ = model(dummy_input)
+
     torch.cuda.synchronize()
     end = time.perf_counter()
 
-    fps = num_runs / (end - start)
-    return fps
+    return num_runs / (end - start)
 
 if __name__ == "__main__":
-    model_path = "results/yolo26n_10/weights/best.pt"  # 换成你自己的模型路径
-    fps = get_fps(model_path)
-    print(f"fps is {fps:.2f}")
+    base_dir = "results"
+    model_paths = [
+        f"{base_dir}/finish_1/weights/best.pt",
+        f"{base_dir}/finish_5/weights/best.pt",
+        f"{base_dir}/WTB_1/weights/best.pt",
+        f"{base_dir}/WTB_5/weights/best.pt",
+        f"{base_dir}/PEM_1/weights/best.pt",
+        f"{base_dir}/PEM_5/weights/best.pt",
+    ]
+
+    results = []
+    for model_path in model_paths:
+        ch = 5 if "5" in model_path else 1
+        fps = get_fps(model_path, ch=ch)
+        results.append(f"{model_path} fps is {fps:.2f}")
+
+    for line in results:
+        print(line)
